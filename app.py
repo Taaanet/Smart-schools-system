@@ -1650,11 +1650,11 @@ def users_list():
         traceback.print_exc()
         return f"<h1>خطأ في النظام</h1><p>الرجاء المحاولة لاحقاً</p><p>التفاصيل: {str(e)}</p>", 500
 
-@app.route("/api/users")
-@login_required
+# ============== دالة API للمستخدمين (تم إزالة التكرار) ==============
 @app.route("/api/users")
 @login_required
 def api_users():
+    """API لجلب بيانات المستخدمين مع حالة الترخيص"""
     if session.get('role') not in ['admin', 'super_admin']:
         return jsonify({"success": False, "message": "غير مصرح"}), 403
     
@@ -1663,7 +1663,8 @@ def api_users():
     
     for username, data in users.items():
         role = data.get('role', 'user')
-        # ✅ التعديل: إذا كان المستخدم من نوع super_admin، اعتبره نشطاً دائماً
+        
+        # ✅ التعديل: super_admin يعتبر نشطاً دائماً وبترخيص غير محدود
         if role == 'super_admin':
             license_status = {
                 'has_license': True,
@@ -1688,6 +1689,8 @@ def api_users():
         })
     
     return jsonify({"success": True, "users": users_data})
+
+# ============== باقي دوال API ==============
 @app.route("/api/create_user", methods=["POST"])
 @login_required
 def api_create_user():
@@ -2673,6 +2676,7 @@ def admin_schools():
     """صفحة إدارة المدارس"""
     schools = get_all_schools()
     return render_template('admin_schools.html', schools=schools)
+
 @app.route('/admin/subscriptions')
 @login_required
 @super_admin_required
@@ -2680,6 +2684,7 @@ def admin_subscriptions():
     """صفحة إدارة اشتراكات المدارس"""
     schools = get_all_schools()
     return render_template('admin_subscriptions.html', schools=schools)
+
 @app.route('/school/settings')
 @login_required
 @super_admin_required
@@ -2771,6 +2776,7 @@ def extend_license_api(school_id):
     if success:
         return jsonify({"success": True, "message": message})
     return jsonify({"success": False, "message": message}), 400
+
 # ============== تشغيل النسخ الاحتياطي التلقائي في الخلفية ==============
 backup_thread = threading.Thread(target=scheduled_backup, daemon=True)
 backup_thread.start()
@@ -2800,6 +2806,7 @@ def ensure_super_admin():
 
 # تشغيل الدالة عند بدء التطبيق
 ensure_super_admin()
+
 # ============== تشغيل التطبيق ==============
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
