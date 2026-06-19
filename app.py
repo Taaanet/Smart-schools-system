@@ -2746,6 +2746,28 @@ backup_thread.start()
 # ============== تشغيل إعداد السياسات ==============
 setup_rls_policies()
 
+# ==================================================
+# 🔧 كود تأكيد صلاحيات المدير العام - للإصلاح الفوري
+# ==================================================
+def ensure_super_admin():
+    """يتأكد من أن المستخدم Taha_Mohamed لديه صلاحية super_admin"""
+    try:
+        users = load_users()
+        if 'Taha_Mohamed' in users:
+            if users['Taha_Mohamed'].get('role') != 'super_admin':
+                print("⚠️ تم العثور على Taha_Mohamed بدور admin. جاري التحديث إلى super_admin...")
+                users['Taha_Mohamed']['role'] = 'super_admin'
+                save_users(users)
+                print("✅ تم تحديث دور Taha_Mohamed إلى super_admin")
+            else:
+                print("✅ Taha_Mohamed لديه صلاحية super_admin بالفعل")
+        else:
+            print("⚠️ لم يتم العثور على Taha_Mohamed في users.json")
+    except Exception as e:
+        print(f"❌ خطأ في ensure_super_admin: {e}")
+
+# تشغيل الدالة عند بدء التطبيق
+ensure_super_admin()
 # ============== تشغيل التطبيق ==============
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
