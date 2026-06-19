@@ -653,8 +653,8 @@ def check_user_license_by_days(username):
     
     user = users[username]
     
-    # المدير لا ينتهي ترخيصه أبداً
-    if user.get('role') == 'admin':
+    # ✅ التعديل: المدير العام (super_admin) والمدير (admin) لا ينتهي ترخيصهما أبداً
+    if user.get('role') in ['admin', 'super_admin']:
         return True, None
     
     expiry_date = user.get('license_expiry')
@@ -667,7 +667,6 @@ def check_user_license_by_days(username):
         else:
             expiry = expiry_date
         
-        # ✅ التعديل: الحصول على التاريخ الحالي (بدون وقت)
         today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
         expiry_date_only = expiry.replace(hour=0, minute=0, second=0, microsecond=0)
         days_left = (expiry_date_only - today).days
@@ -695,7 +694,8 @@ def get_user_license_days_remaining(username):
     
     user = users[username]
     
-    if user.get('role') == 'admin':
+    # ✅ التعديل: المدير العام والمدير لديهما ترخيص غير محدود
+    if user.get('role') in ['admin', 'super_admin']:
         return -1
     
     expiry_date = user.get('license_expiry')
@@ -708,7 +708,6 @@ def get_user_license_days_remaining(username):
         else:
             expiry = expiry_date
         
-        # ✅ التعديل: حساب الأيام المتبقية (بدون وقت)
         today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
         expiry_date_only = expiry.replace(hour=0, minute=0, second=0, microsecond=0)
         days_remaining = (expiry_date_only - today).days
@@ -719,7 +718,6 @@ def get_user_license_days_remaining(username):
     except Exception as e:
         print(f"❌ خطأ في حساب الأيام المتبقية: {e}")
         return 0
-
 
 # ============== إدارة المستخدمين المتقدمة (مع أيام الترخيص) ==============
 USERS_FILE = 'users.json'
