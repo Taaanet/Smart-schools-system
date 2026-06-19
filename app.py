@@ -2657,6 +2657,24 @@ def admin_schools():
     """صفحة إدارة المدارس"""
     schools = get_all_schools()
     return render_template('admin_schools.html', schools=schools)
+@app.route('/admin/subscriptions')
+@login_required
+@super_admin_required
+def admin_subscriptions():
+    """صفحة إدارة اشتراكات المدارس"""
+    schools = get_all_schools()
+    return render_template('admin_subscriptions.html', schools=schools)
+@app.route('/school/settings')
+@login_required
+@super_admin_required
+def school_settings():
+    """صفحة إعدادات المدرسة الحالية"""
+    school = get_school_from_domain(request.host)
+    if not school:
+        flash('المدرسة غير موجودة', 'error')
+        return redirect(url_for('admin_dashboard'))
+    
+    return render_template('school_settings.html', school=school)
 
 @app.route('/api/admin/create_school', methods=['POST'])
 @login_required
