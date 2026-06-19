@@ -20,6 +20,7 @@
         gap: 20px;
         flex-wrap: wrap;
         margin-bottom: 15px;
+        align-items: center;
     }
     .settings-row label {
         min-width: 150px;
@@ -33,11 +34,6 @@
         border-radius: 10px;
         min-width: 200px;
     }
-    .settings-row input[type="color"] {
-        width: 60px;
-        padding: 5px;
-        min-width: auto;
-    }
     .btn-save {
         background: linear-gradient(135deg, #48bb78, #38a169);
         color: white;
@@ -49,24 +45,13 @@
         font-size: 16px;
     }
     .btn-save:hover { transform: translateY(-2px); }
-    .preview-box {
-        border: 2px dashed #e2e8f0;
-        border-radius: 15px;
-        padding: 30px;
-        text-align: center;
-        margin-top: 20px;
-    }
-    .preview-box .logo-preview {
-        width: 100px;
-        height: 100px;
-        border-radius: 50%;
-        background: #f7fafc;
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 40px;
+    .alert {
+        padding: 12px;
+        border-radius: 12px;
         margin-bottom: 15px;
     }
+    .alert-success { background: #c6f6d5; color: #22543d; }
+    .alert-error { background: #fed7d7; color: #742a2a; }
 </style>
 {% endblock %}
 
@@ -74,16 +59,37 @@
 <div class="container">
     <h1 style="margin-bottom: 25px;">⚙️ إعدادات المدرسة</h1>
     
+    <!-- عرض رسائل التنبيه -->
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+            {% for category, message in messages %}
+                <div class="alert alert-{{ category }}">{{ message }}</div>
+            {% endfor %}
+        {% endif %}
+    {% endwith %}
+    
     <div class="settings-card">
         <h3>🏫 معلومات المدرسة</h3>
         <div class="settings-row">
             <label>اسم المدرسة:</label>
-            <input type="text" id="schoolName" value="{{ school_name or 'المدرسة النموذجية' }}">
+            <input type="text" id="schoolName" value="{{ school.name if school else '' }}">
         </div>
         <div class="settings-row">
             <label>النطاق الفرعي:</label>
-            <input type="text" id="schoolSubdomain" value="{{ school_subdomain or 'school1' }}" disabled>
+            <input type="text" id="schoolSubdomain" value="{{ school.subdomain if school else '' }}" disabled>
             <small style="color: #718096;">لا يمكن تغيير النطاق الفرعي</small>
+        </div>
+        <div class="settings-row">
+            <label>الخطة:</label>
+            <select id="schoolPlan">
+                <option value="basic" {% if school and school.plan == 'basic' %}selected{% endif %}>🟦 Basic</option>
+                <option value="premium" {% if school and school.plan == 'premium' %}selected{% endif %}>🟩 Premium</option>
+                <option value="enterprise" {% if school and school.plan == 'enterprise' %}selected{% endif %}>🟨 Enterprise</option>
+            </select>
+        </div>
+        <div class="settings-row">
+            <label>تاريخ انتهاء الترخيص:</label>
+            <input type="text" id="licenseExpiry" value="{{ school.license_expiry[:10] if school and school.license_expiry else 'غير محدد' }}" disabled>
         </div>
     </div>
     
@@ -91,17 +97,15 @@
         <h3>🎨 تخصيص الواجهة</h3>
         <div class="settings-row">
             <label>شعار المدرسة:</label>
-            <input type="text" id="schoolLogo" placeholder="رابط الصورة" value="{{ school_logo or '' }}">
+            <input type="text" id="schoolLogo" placeholder="رابط الصورة" value="{{ school.logo or '' }}">
         </div>
         <div class="settings-row">
             <label>اللون الأساسي:</label>
-            <input type="color" id="primaryColor" value="{{ primary_color or '#667eea' }}">
-            <input type="text" id="primaryColorText" value="{{ primary_color or '#667eea' }}" style="flex: 0.3; min-width: 80px;">
+            <input type="color" id="primaryColor" value="#667eea">
         </div>
         <div class="settings-row">
             <label>اللون الثانوي:</label>
-            <input type="color" id="secondaryColor" value="{{ secondary_color or '#764ba2' }}">
-            <input type="text" id="secondaryColorText" value="{{ secondary_color or '#764ba2' }}" style="flex: 0.3; min-width: 80px;">
+            <input type="color" id="secondaryColor" value="#764ba2">
         </div>
     </div>
     
@@ -109,29 +113,15 @@
         <h3>👤 معلومات مدير المدرسة</h3>
         <div class="settings-row">
             <label>اسم المدير:</label>
-            <input type="text" id="adminName" value="{{ admin_name or '' }}">
+            <input type="text" id="adminName" value="{{ school.admin_name or '' }}">
         </div>
         <div class="settings-row">
             <label>البريد الإلكتروني:</label>
-            <input type="email" id="adminEmail" value="{{ admin_email or '' }}">
+            <input type="email" id="adminEmail" value="{{ school.admin_email or '' }}">
         </div>
         <div class="settings-row">
             <label>رقم الجوال:</label>
-            <input type="text" id="adminPhone" value="{{ admin_phone or '' }}">
-        </div>
-    </div>
-    
-    <!-- معاينة -->
-    <div class="settings-card">
-        <h3>👁️ معاينة التغييرات</h3>
-        <div class="preview-box" id="previewBox">
-            <div class="logo-preview" id="logoPreview">🏫</div>
-            <h2 id="previewSchoolName">{{ school_name or 'المدرسة النموذجية' }}</h2>
-            <p style="color: #718096;">نظام حضور الطلاب الذكي</p>
-            <div style="display: flex; gap: 15px; justify-content: center; margin-top: 15px;">
-                <span style="background: #667eea; color: white; padding: 8px 20px; border-radius: 25px;" id="previewBtn1">تسجيل الحضور</span>
-                <span style="background: #764ba2; color: white; padding: 8px 20px; border-radius: 25px;" id="previewBtn2">التقارير</span>
-            </div>
+            <input type="text" id="adminPhone" value="{{ school.admin_phone or '' }}">
         </div>
     </div>
     
@@ -139,43 +129,6 @@
 </div>
 
 <script>
-    // تحديث المعاينة عند تغيير الألوان
-    document.getElementById('primaryColor').addEventListener('input', function() {
-        document.getElementById('primaryColorText').value = this.value;
-        document.getElementById('previewBtn1').style.background = this.value;
-        document.getElementById('previewBox').style.borderColor = this.value;
-    });
-    
-    document.getElementById('secondaryColor').addEventListener('input', function() {
-        document.getElementById('secondaryColorText').value = this.value;
-        document.getElementById('previewBtn2').style.background = this.value;
-    });
-    
-    document.getElementById('primaryColorText').addEventListener('input', function() {
-        document.getElementById('primaryColor').value = this.value;
-        document.getElementById('previewBtn1').style.background = this.value;
-    });
-    
-    document.getElementById('secondaryColorText').addEventListener('input', function() {
-        document.getElementById('secondaryColor').value = this.value;
-        document.getElementById('previewBtn2').style.background = this.value;
-    });
-    
-    // تحديث اسم المدرسة في المعاينة
-    document.getElementById('schoolName').addEventListener('input', function() {
-        document.getElementById('previewSchoolName').textContent = this.value || 'المدرسة النموذجية';
-    });
-    
-    // تحديث الشعار في المعاينة
-    document.getElementById('schoolLogo').addEventListener('input', function() {
-        const logoPreview = document.getElementById('logoPreview');
-        if (this.value) {
-            logoPreview.innerHTML = `<img src="${this.value}" style="width: 80px; height: 80px; border-radius: 50%; object-fit: cover;">`;
-        } else {
-            logoPreview.innerHTML = '🏫';
-        }
-    });
-    
     async function saveSettings() {
         const settings = {
             school_name: document.getElementById('schoolName').value,
@@ -184,12 +137,13 @@
             secondary_color: document.getElementById('secondaryColor').value,
             admin_name: document.getElementById('adminName').value,
             admin_email: document.getElementById('adminEmail').value,
-            admin_phone: document.getElementById('adminPhone').value
+            admin_phone: document.getElementById('adminPhone').value,
+            plan: document.getElementById('schoolPlan').value
         };
         
         try {
-            const response = await fetch('/api/school/save_settings', {
-                method: 'POST',
+            const response = await fetch('/api/admin/update_school/{{ school.id }}', {
+                method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(settings)
             });
