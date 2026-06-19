@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block title %}النسخ الاحتياطية{% endblock %}
+{% block page_title %}💾 النسخ الاحتياطية{% endblock %}
+
+{% block content %}
+<div class="action-buttons">
+    <button class="action-btn action-btn-excel" id="createBackupBtn">🔄 إنشاء نسخة احتياطية</button>
+</div>
+
+<div class="table-wrapper">
+    <div id="backupTable">
+        <div style="text-align:center;padding:50px;">⏳ جاري تحميل النسخ الاحتياطية...</div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    async function loadBackups() {
+        try {
+            const response = await fetch('/api/list_backups');
+            const data = await response.json();
+            if (data.success && data.backups.length > 0) {
+                const html = `<table><thead><tr><th>اسم الملف</th><th>الحجم</th><th>تاريخ الإنشاء</th><th>تحميل</th></tr></thead><tbody>
+                    ${data.backups.map(b => `<tr><td>${b.name}</td><td>${b.size_kb} KB</td><td>${b.date}</td><td><a href="/api/download_backup/${b.name}" style="background:#4299e1;color:white;padding:5px 15px;border-radius:5px;text-decoration:none;">📥 تحميل</a></td></tr>`).join('')}
+                </tbody></table>`;
+                document.getElementById('backupTable').innerHTML = html;
+            } else {
+                document.getElementById('backupTable').innerHTML = '<div style="text-align:center;padding:50px;">📭 لا توجد نسخ احتياطية حتى الآن</div>';
+            }
+        } catch(error) {
+            document.getElementById('backupTable').innerHTML = '<div style="text-align:center;padding:50px;">❌ حدث خطأ</div>';
+        }
+    }
+
+    async function createBackup() {
+        const btn = event.target;
+        const originalText = btn.innerText;
+        btn.innerText = '⏳ جاري الإنشاء...';
+        btn.disabled = true;
+        
+        const response = await fetch('/api/create_backup');
+        const data = await response.json();
+        
+        btn.innerText = originalText;
+        btn.disabled = false;
+        
+        if (data.success) {
+            alert('✅ ' + data.message);
+            loadBackups();
+        } else {
+            alert('❌ فشل إنشاء النسخة: ' + data.message);
+        }
+    }
+    
+    document.getElementById('createBackupBtn').addEventListener('click', createBackup);
+    loadBackups();
+</script>
+{% endblock %}

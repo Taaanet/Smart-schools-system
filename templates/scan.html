@@ -1,0 +1,272 @@
+{% extends "base.html" %}
+{% block title %}{{ t('scan') }}{% endblock %}
+{% block page_title %}<i class="fas fa-qrcode"></i> {{ t('scan') }}{% endblock %}
+
+{% block extra_css %}
+<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
+<style>
+    .camera-area {
+        background: #000;
+        border-radius: 12px;
+        overflow: hidden;
+        margin: 10px 0;
+        min-height: 280px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+    #video {
+        width: 100%;
+        display: none;
+        transform: scaleX(-1);
+    }
+    .camera-buttons { display: flex; gap: 10px; margin-top: 10px; }
+    .stop-btn { background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); display: none; }
+    .result-box {
+        margin-top: 20px;
+        padding: 15px;
+        border-radius: 15px;
+        display: none;
+    }
+    .success { background: #d4edda; color: #155724; border-right: 5px solid #28a745; }
+    .error { background: #f8d7da; color: #721c24; border-right: 5px solid #dc3545; }
+    .info { background: #d1ecf1; color: #0c5460; border-right: 5px solid #17a2b8; }
+    .student-card {
+        background: #f8f9fa;
+        padding: 12px;
+        border-radius: 12px;
+        margin-top: 12px;
+    }
+    .input-group {
+        display: flex;
+        gap: 10px;
+        margin: 15px 0;
+        flex-wrap: wrap;
+    }
+    .input-group input {
+        flex: 2;
+        padding: 14px;
+        border: 2px solid #e0e0e0;
+        border-radius: 25px;
+        font-size: 16px;
+        text-align: center;
+    }
+    .input-group button {
+        flex: 1;
+        background: #28a745;
+    }
+    .status-text { text-align: center; margin-top: 8px; font-size: 12px; color: #666; }
+    @media (max-width: 550px) {
+        button { padding: 10px 16px; font-size: 14px; }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="card">
+    <h3><i class="fas fa-camera"></i> {{ t('scan_qr') }}</h3>
+    
+    <div class="camera-area">
+        <video id="video" autoplay playsinline muted></video>
+        <canvas id="canvas" style="display: none;"></canvas>
+    </div>
+    
+    <div class="camera-buttons">
+        <button id="startCameraBtn" class="nav-btn nav-btn-success">▶️ {{ t('start_camera') }}</button>
+        <button id="stopCameraBtn" class="nav-btn nav-btn-danger stop-btn">⏹️ {{ t('stop_camera') }}</button>
+    </div>
+    <div id="cameraStatus" class="status-text"></div>
+    
+    <div id="result" class="result-box"></div>
+    
+    <hr style="margin: 20px 0;">
+    
+    <h3><i class="fas fa-keyboard"></i> {{ t('manual_entry') }}</h3>
+    <div class="input-group">
+        <input type="text" id="manualId" placeholder="{{ t('enter_student_id') }}" autocomplete="off">
+        <button id="registerBtn" class="nav-btn nav-btn-primary" onclick="registerManually()">✅ {{ t('register_attendance') }}</button>
+    </div>
+</div>
+
+<script>
+    const lang = '{{ lang }}';
+    const video = document.getElementById('video');
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    const startBtn = document.getElementById('startCameraBtn');
+    const stopBtn = document.getElementById('stopCameraBtn');
+    const cameraStatus = document.getElementById('cameraStatus');
+    const resultDiv = document.getElementById('result');
+    const manualIdInput = document.getElementById('manualId');
+
+    let stream = null;
+    let scanning = false;
+    let animationId = null;
+    let lastScannedCode = null;
+    let lastScanTime = 0;
+    const SCAN_COOLDOWN = 3000;
+
+    function t(key) {
+        const translations = {
+            'enter_student_id_warning': lang === 'ar' ? '⚠️ الرجاء إدخال رقم الطالب' : '⚠️ Please enter student ID',
+            'registering': lang === 'ar' ? '🔄 جاري تسجيل الحضور...' : '🔄 Registering attendance...',
+            'connection_error': lang === 'ar' ? '❌ خطأ في الاتصال' : '❌ Connection error',
+            'camera_starting': lang === 'ar' ? '📷 جاري تشغيل الكاميرا...' : '📷 Starting camera...',
+            'camera_active': lang === 'ar' ? '✅ الكاميرا تعمل - المسح التلقائي مستمر' : '✅ Camera active - auto-scanning',
+            'camera_error': lang === 'ar' ? '❌ لا يمكن تشغيل الكamera' : '❌ Cannot start camera',
+            'camera_error_message': lang === 'ar' ? '❌ لا يمكن تشغيل الكاميرا. الرجاء استخدام الإدخال اليدوي' : '❌ Cannot start camera. Please use manual entry',
+            'name': lang === 'ar' ? 'الاسم' : 'Name',
+            'grade': lang === 'ar' ? 'الصف' : 'Grade',
+            'class': lang === 'ar' ? 'شعبة' : 'Class',
+            'time': lang === 'ar' ? 'الوقت' : 'Time',
+            'date': lang === 'ar' ? 'التاريخ' : 'Date'
+        };
+        return translations[key] || key;
+    }
+
+    async function refreshDataAfterRegistration() {
+        try { await fetch('/api/refresh_all'); } catch(e) {}
+    }
+
+    async function registerStudent(studentId) {
+        if (!studentId || studentId.trim() === '') {
+            showResult(t('enter_student_id_warning'), 'error');
+            return false;
+        }
+        
+        const id = studentId.trim();
+        showResult(t('registering'), 'info');
+        
+        try {
+            const response = await fetch('/api/register', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ student_id: id })
+            });
+            
+            const data = await response.json();
+            
+            if (data.success) {
+                showResult(data.message, 'success', {
+                    student_name: data.student_name,
+                    student_grade: data.student_grade,
+                    student_class: data.student_class,
+                    time: data.time,
+                    date: data.date
+                });
+                manualIdInput.value = '';
+                await refreshDataAfterRegistration();
+                try {
+                    const audio = new Audio('https://www.soundjay.com/misc/sounds/bell-ringing-05.mp3');
+                    audio.play().catch(e => console.log('Audio not available'));
+                } catch(e) {}
+                return true;
+            } else {
+                showResult(`❌ ${data.message}`, 'error');
+                return false;
+            }
+        } catch(error) {
+            showResult(`${t('connection_error')}: ${error.message}`, 'error');
+            return false;
+        }
+    }
+
+    function registerManually() {
+        registerStudent(manualIdInput.value);
+    }
+
+    function showResult(message, type, studentData = null) {
+        resultDiv.style.display = 'block';
+        resultDiv.className = `result-box ${type}`;
+        
+        if (studentData && studentData.student_name) {
+            resultDiv.innerHTML = `
+                <div style="font-weight: bold; margin-bottom: 10px;">${message}</div>
+                <div class="student-card">
+                    <p>🧑‍🎓 <strong>${t('name')}:</strong> ${studentData.student_name}</p>
+                    <p>📚 <strong>${t('grade')}:</strong> ${studentData.student_grade} - ${t('class')} ${studentData.student_class}</p>
+                    <p>⏰ <strong>${t('time')}:</strong> ${studentData.time}</p>
+                    <p>📅 <strong>${t('date')}:</strong> ${studentData.date}</p>
+                </div>
+            `;
+        } else {
+            resultDiv.innerHTML = message;
+        }
+        setTimeout(() => { resultDiv.style.display = 'none'; }, 5000);
+    }
+
+    async function handleScannedCode(decodedText) {
+        if (!decodedText) return;
+        const now = Date.now();
+        if (lastScannedCode === decodedText && (now - lastScanTime) < SCAN_COOLDOWN) return;
+        lastScannedCode = decodedText;
+        lastScanTime = now;
+        await registerStudent(decodedText);
+    }
+
+    async function scanFrame() {
+        if (!scanning || !video.videoWidth || !video.videoHeight) {
+            animationId = requestAnimationFrame(scanFrame);
+            return;
+        }
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const code = jsQR(imageData.data, canvas.width, canvas.height);
+        if (code && code.data) await handleScannedCode(code.data.trim());
+        animationId = requestAnimationFrame(scanFrame);
+    }
+
+    async function startScanner() {
+        if (stream) stopScanner();
+        try {
+            cameraStatus.innerHTML = t('camera_starting');
+            stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { exact: "environment" } } });
+            video.srcObject = stream;
+            video.style.display = "block";
+            await video.play();
+            scanning = true;
+            scanFrame();
+            startBtn.style.display = "none";
+            stopBtn.style.display = "block";
+            cameraStatus.innerHTML = t('camera_active');
+        } catch(err) {
+            try {
+                stream = await navigator.mediaDevices.getUserMedia({ video: true });
+                video.srcObject = stream;
+                video.style.display = "block";
+                await video.play();
+                scanning = true;
+                scanFrame();
+                startBtn.style.display = "none";
+                stopBtn.style.display = "block";
+                cameraStatus.innerHTML = t('camera_active');
+            } catch(err2) {
+                cameraStatus.innerHTML = t('camera_error');
+                showResult(t('camera_error_message'), 'error');
+                startBtn.style.display = "block";
+                stopBtn.style.display = "none";
+            }
+        }
+    }
+
+    function stopScanner() {
+        scanning = false;
+        if (animationId) { cancelAnimationFrame(animationId); animationId = null; }
+        if (stream) { stream.getTracks().forEach(track => track.stop()); stream = null; }
+        video.srcObject = null;
+        video.style.display = "none";
+        startBtn.style.display = "block";
+        stopBtn.style.display = "none";
+        cameraStatus.innerHTML = "";
+    }
+
+    startBtn.addEventListener('click', startScanner);
+    stopBtn.addEventListener('click', stopScanner);
+    manualIdInput.addEventListener('keypress', function(e) { if (e.key === 'Enter') registerManually(); });
+    
+    window.addEventListener('load', function() { startScanner(); });
+    window.addEventListener('beforeunload', () => { if (stream) stream.getTracks().forEach(track => track.stop()); if (animationId) cancelAnimationFrame(animationId); });
+</script>
+{% endblock %}

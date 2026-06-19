@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}{{ t('activate_device') }}{% endblock %}
+{% block page_title %}🔓 {{ t('activate_device') }}{% endblock %}
+
+{% block content %}
+<div class="card">
+    <h3><i class="fas fa-key"></i> {{ t('enter_activation_code') }}</h3>
+    <p>{{ t('activation_instruction') }}</p>
+    <form method="POST">
+        <div class="form-group" style="margin-top: 20px; display: flex; gap: 10px; flex-wrap: wrap;">
+            <input type="text" name="activation_code" placeholder="{{ t('activation_code') }}" required style="flex: 3; padding: 12px; border-radius: 12px; border: 2px solid #e2e8f0;">
+            <button type="submit" class="action-btn action-btn-excel" style="background:#48bb78;">🔓 {{ t('activate') }}</button>
+        </div>
+    </form>
+</div>
+{% if error %}
+<div class="alert alert-error" style="display: block; background: #fed7d7; color: #742a2a; padding: 12px; border-radius: 12px; margin-top: 15px;">
+    ❌ {{ error }}
+</div>
+{% endif %}
+{% if success %}
+<div class="alert alert-success" style="display: block; background: #c6f6d5; color: #22543d; padding: 12px; border-radius: 12px; margin-top: 15px;">
+    ✅ {{ success }} {{ t('page_refresh') }}
+</div>
+<script>
+    setTimeout(() => { window.location.href = '/'; }, 3000);
+</script>
+{% endif %}
+{% endblock %}

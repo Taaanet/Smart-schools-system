@@ -1,0 +1,446 @@
+{% extends "base.html" %}
+{% block title %}{{ t('manage_students') }}{% endblock %}
+{% block page_title %}<i class="fas fa-user-graduate"></i> {{ t('manage_students') }}{% endblock %}
+
+{% block content %}
+<style>
+    .form-group {
+        display: flex;
+        gap: 15px;
+        flex-wrap: wrap;
+        align-items: flex-end;
+    }
+    .form-group input, .form-group select {
+        padding: 12px 15px;
+        border: 2px solid #e2e8f0;
+        border-radius: 12px;
+        font-size: 14px;
+        flex: 1;
+        min-width: 150px;
+    }
+    .form-group button {
+        background: linear-gradient(135deg, #48bb78, #38a169);
+        color: white;
+        border: none;
+        padding: 12px 25px;
+        border-radius: 12px;
+        cursor: pointer;
+        font-weight: bold;
+    }
+    
+    .search-box {
+        display: flex;
+        gap: 15px;
+        flex-wrap: wrap;
+        margin-bottom: 20px;
+    }
+    .search-box input {
+        flex: 1;
+        padding: 12px 15px;
+        border: 2px solid #e2e8f0;
+        border-radius: 12px;
+    }
+    .search-box button {
+        background: #4299e1;
+        color: white;
+        border: none;
+        padding: 12px 25px;
+        border-radius: 12px;
+        cursor: pointer;
+    }
+    
+    .table-wrapper { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td {
+        padding: 12px 15px;
+        text-align: center;
+        border-bottom: 1px solid #e2e8f0;
+    }
+    th {
+        background: linear-gradient(135deg, #667eea, #764ba2);
+        color: white;
+    }
+    tr:hover { background: #f7fafc; }
+    
+    .btn-edit { background: #ed8936; color: white; padding: 6px 12px; border: none; border-radius: 8px; cursor: pointer; margin: 2px; }
+    .btn-delete { background: #e53e3e; color: white; padding: 6px 12px; border: none; border-radius: 8px; cursor: pointer; margin: 2px; }
+    .btn-refresh { background: #4299e1; color: white; padding: 6px 12px; border: none; border-radius: 8px; cursor: pointer; }
+    
+    .modal {
+        display: none;
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0,0,0,0.5);
+        justify-content: center;
+        align-items: center;
+        z-index: 1000;
+    }
+    .modal-content {
+        background: white;
+        border-radius: 20px;
+        padding: 30px;
+        width: 90%;
+        max-width: 500px;
+    }
+    .modal-content h3 { margin-bottom: 20px; }
+    .modal-content input, .modal-content select {
+        width: 100%;
+        padding: 12px;
+        margin: 10px 0;
+        border: 2px solid #e2e8f0;
+        border-radius: 12px;
+    }
+    .modal-buttons {
+        display: flex;
+        gap: 10px;
+        margin-top: 20px;
+    }
+    .modal-buttons button {
+        flex: 1;
+        padding: 12px;
+        border: none;
+        border-radius: 12px;
+        cursor: pointer;
+    }
+    .btn-save { background: #48bb78; color: white; }
+    .btn-cancel { background: #a0aec0; color: white; }
+    
+    .alert {
+        padding: 12px;
+        border-radius: 12px;
+        margin-bottom: 15px;
+        display: none;
+    }
+    .alert-success { background: #c6f6d5; color: #22543d; }
+    .alert-error { background: #fed7d7; color: #742a2a; }
+    
+    .stats-info {
+        background: #f7fafc;
+        border-radius: 15px;
+        padding: 15px;
+        margin-bottom: 20px;
+        display: flex;
+        justify-content: space-between;
+        flex-wrap: wrap;
+    }
+    
+    @media (max-width: 768px) {
+        .form-group { flex-direction: column; }
+        .form-group input, .form-group select, .form-group button { width: 100%; }
+        th, td { padding: 8px; font-size: 12px; }
+    }
+</style>
+
+<div id="alert" class="alert"></div>
+
+<!-- إحصائيات -->
+<div class="stats-info">
+    <div><i class="fas fa-users"></i> <strong id="totalStudents">0</strong> {{ t('students') }}</div>
+    <div><i class="fas fa-school"></i> {% if lang == 'ar' %}الصفوف: الأول - الثاني - الثالث الثانوي{% else %}Grades: First - Second - Third Secondary{% endif %}</div>
+    <div><i class="fas fa-layer-group"></i> {% if lang == 'ar' %}الشعب: 1 - 2 - 3 - 4 - 5 - 6{% else %}Classes: 1 - 2 - 3 - 4 - 5 - 6{% endif %}</div>
+</div>
+
+<!-- نموذج إضافة طالب -->
+<div class="card">
+    <h3><i class="fas fa-user-plus"></i> {{ t('add_new_student') }}</h3>
+    <div class="form-group">
+        <input type="text" id="newStudentId" placeholder="{{ t('student_id') }} *">
+        <input type="text" id="newStudentName" placeholder="{{ t('student_name') }} *">
+        <select id="newStudentGrade">
+            <option value="الأول الثانوي">{{ t('first_secondary') }}</option>
+            <option value="الثاني الثانوي">{{ t('second_secondary') }}</option>
+            <option value="الثالث الثانوي">{{ t('third_secondary') }}</option>
+        </select>
+        <select id="newStudentClass">
+            <option value="1">{{ t('class') }} 1</option>
+            <option value="2">{{ t('class') }} 2</option>
+            <option value="3">{{ t('class') }} 3</option>
+            <option value="4">{{ t('class') }} 4</option>
+            <option value="5">{{ t('class') }} 5</option>
+            <option value="6">{{ t('class') }} 6</option>
+        </select>
+        <input type="text" id="newStudentPhone" placeholder="{{ t('phone_optional') }}">
+        <input type="text" id="newStudentParentPhone" placeholder="{{ t('parent_phone_optional') }}">
+        <button onclick="createStudent()"><i class="fas fa-plus"></i> {{ t('add_student') }}</button>
+    </div>
+</div>
+
+<!-- بحث وتصفية -->
+<div class="card">
+    <div class="search-box">
+        <input type="text" id="searchInput" placeholder="🔍 {{ t('search_by_name_id') }}...">
+        <select id="filterGrade">
+            <option value="">{{ t('all_grades') }}</option>
+            <option value="الأول الثانوي">{{ t('first_secondary') }}</option>
+            <option value="الثاني الثانوي">{{ t('second_secondary') }}</option>
+            <option value="الثالث الثانوي">{{ t('third_secondary') }}</option>
+        </select>
+        <select id="filterClass">
+            <option value="">{{ t('all_classes') }}</option>
+            <option value="1">{{ t('class') }} 1</option>
+            <option value="2">{{ t('class') }} 2</option>
+            <option value="3">{{ t('class') }} 3</option>
+            <option value="4">{{ t('class') }} 4</option>
+            <option value="5">{{ t('class') }} 5</option>
+            <option value="6">{{ t('class') }} 6</option>
+        </select>
+        <button onclick="filterAndDisplay()"><i class="fas fa-search"></i> {{ t('search') }}</button>
+        <button onclick="loadStudents()" style="background:#48bb78;"><i class="fas fa-sync-alt"></i> {{ t('refresh') }}</button>
+    </div>
+
+    <div class="table-wrapper">
+        <table>
+            <thead>
+                <tr>
+                    <th>#</th>
+                    <th>{{ t('student_id') }}</th>
+                    <th>{{ t('student_name') }}</th>
+                    <th>{{ t('grade') }}</th>
+                    <th>{{ t('class') }}</th>
+                    <th>{{ t('phone') }}</th>
+                    <th>{{ t('parent_phone') }}</th>
+                    <th>{{ t('actions') }}</th>
+                </tr>
+            </thead>
+            <tbody id="studentsTableBody">
+                <tr><td colspan="8" style="text-align:center;">{{ t('loading') }}...</td></tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- مودال تعديل الطالب -->
+<div id="editStudentModal" class="modal">
+    <div class="modal-content">
+        <h3><i class="fas fa-edit"></i> {{ t('edit_student') }}</h3>
+        <input type="hidden" id="editStudentId">
+        <input type="text" id="editStudentName" placeholder="{{ t('student_name') }}">
+        <select id="editStudentGrade">
+            <option value="الأول الثانوي">{{ t('first_secondary') }}</option>
+            <option value="الثاني الثانوي">{{ t('second_secondary') }}</option>
+            <option value="الثالث الثانوي">{{ t('third_secondary') }}</option>
+        </select>
+        <select id="editStudentClass">
+            <option value="1">{{ t('class') }} 1</option>
+            <option value="2">{{ t('class') }} 2</option>
+            <option value="3">{{ t('class') }} 3</option>
+            <option value="4">{{ t('class') }} 4</option>
+            <option value="5">{{ t('class') }} 5</option>
+            <option value="6">{{ t('class') }} 6</option>
+        </select>
+        <input type="text" id="editStudentPhone" placeholder="{{ t('phone') }}">
+        <input type="text" id="editStudentParentPhone" placeholder="{{ t('parent_phone') }}">
+        <div class="modal-buttons">
+            <button class="btn-save" onclick="updateStudent()"><i class="fas fa-save"></i> {{ t('save') }}</button>
+            <button class="btn-cancel" onclick="closeStudentModal()"><i class="fas fa-times"></i> {{ t('cancel') }}</button>
+        </div>
+    </div>
+</div>
+
+<script>
+    const lang = '{{ lang }}';
+    let allStudents = [];
+    let currentUserRole = '{{ session.get("role", "user") }}';
+
+    function showAlert(message, type) {
+        const alertDiv = document.getElementById('alert');
+        alertDiv.className = `alert alert-${type}`;
+        alertDiv.innerHTML = type === 'success' ? `✅ ${message}` : `❌ ${message}`;
+        alertDiv.style.display = 'block';
+        setTimeout(() => { alertDiv.style.display = 'none'; }, 3000);
+    }
+
+    async function loadStudents() {
+        try {
+            const response = await fetch('/api/students_list');
+            const data = await response.json();
+            if (data.success) {
+                allStudents = data.data;
+                document.getElementById('totalStudents').innerHTML = allStudents.length;
+                filterAndDisplay();
+            }
+        } catch(e) {
+            document.getElementById('studentsTableBody').innerHTML = `<tr><td colspan="8" style="text-align:center;">❌ ${lang === 'ar' ? 'حدث خطأ في التحميل' : 'Error loading data'}</td></tr>`;
+        }
+    }
+
+    function filterAndDisplay() {
+        const search = document.getElementById('searchInput').value.toLowerCase();
+        const filterGrade = document.getElementById('filterGrade').value;
+        const filterClass = document.getElementById('filterClass').value;
+        
+        let filtered = allStudents;
+        
+        if (search) {
+            filtered = filtered.filter(s => 
+                s.name.toLowerCase().includes(search) || 
+                s.student_id.includes(search)
+            );
+        }
+        if (filterGrade) {
+            filtered = filtered.filter(s => s.grade === filterGrade);
+        }
+        if (filterClass) {
+            filtered = filtered.filter(s => s.class === filterClass);
+        }
+        
+        displayStudents(filtered);
+    }
+
+    function displayStudents(students) {
+        const tbody = document.getElementById('studentsTableBody');
+        if (!students || students.length === 0) {
+            tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;">⚠️ ${lang === 'ar' ? 'لا توجد بيانات للعرض' : 'No data to display'}</td></tr>`;
+            return;
+        }
+        
+        const canEdit = currentUserRole === 'admin' || currentUserRole === 'editor';
+        const canDelete = currentUserRole === 'admin';
+        
+        tbody.innerHTML = students.map((s, i) => `
+            <tr>
+                <td>${i+1}</td>
+                <td>${s.student_id}</td>
+                <td><strong>${s.name}</strong></td>
+                <td>${s.grade}</td>
+                <td>${s.class}</td>
+                <td>${s.phone || '-'}</td>
+                <td>${s.parent_phone || '-'}</td>
+                <td>
+                    ${canEdit ? `<button class="btn-edit" onclick="openEditStudentModal('${s.student_id}')"><i class="fas fa-edit"></i> ${lang === 'ar' ? 'تعديل' : 'Edit'}</button>` : ''}
+                    ${canDelete ? `<button class="btn-delete" onclick="deleteStudent('${s.student_id}')"><i class="fas fa-trash"></i> ${lang === 'ar' ? 'حذف' : 'Delete'}</button>` : ''}
+                </td>
+            </tr>
+        `).join('');
+    }
+
+    async function createStudent() {
+        if (currentUserRole === 'user') {
+            showAlert(lang === 'ar' ? 'ليس لديك صلاحية لإضافة طلاب' : 'You do not have permission to add students', 'error');
+            return;
+        }
+        
+        const student_id = document.getElementById('newStudentId').value.trim();
+        const name = document.getElementById('newStudentName').value.trim();
+        const grade = document.getElementById('newStudentGrade').value;
+        const classVal = document.getElementById('newStudentClass').value;
+        const phone = document.getElementById('newStudentPhone').value.trim();
+        const parent_phone = document.getElementById('newStudentParentPhone').value.trim();
+        
+        if (!student_id) { showAlert(lang === 'ar' ? 'الرجاء إدخال رقم الطالب' : 'Please enter student ID', 'error'); return; }
+        if (!name) { showAlert(lang === 'ar' ? 'الرجاء إدخال اسم الطالب' : 'Please enter student name', 'error'); return; }
+        
+        try {
+            const response = await fetch('/api/create_student', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ student_id, name, grade, class: classVal, phone, parent_phone })
+            });
+            const data = await response.json();
+            
+            if (data.success) {
+                showAlert(data.message, 'success');
+                document.getElementById('newStudentId').value = '';
+                document.getElementById('newStudentName').value = '';
+                document.getElementById('newStudentPhone').value = '';
+                document.getElementById('newStudentParentPhone').value = '';
+                loadStudents();
+            } else {
+                showAlert(data.message, 'error');
+            }
+        } catch(e) {
+            showAlert(lang === 'ar' ? 'خطأ في الاتصال' : 'Connection error', 'error');
+        }
+    }
+
+    function openEditStudentModal(student_id) {
+        const student = allStudents.find(s => s.student_id === student_id);
+        if (student) {
+            document.getElementById('editStudentId').value = student.student_id;
+            document.getElementById('editStudentName').value = student.name || '';
+            document.getElementById('editStudentGrade').value = student.grade || 'الأول الثانوي';
+            document.getElementById('editStudentClass').value = student.class || '1';
+            document.getElementById('editStudentPhone').value = student.phone || '';
+            document.getElementById('editStudentParentPhone').value = student.parent_phone || '';
+            document.getElementById('editStudentModal').style.display = 'flex';
+        }
+    }
+
+    async function updateStudent() {
+        if (currentUserRole === 'user') {
+            showAlert(lang === 'ar' ? 'ليس لديك صلاحية لتعديل الطلاب' : 'You do not have permission to edit students', 'error');
+            return;
+        }
+        
+        const student_id = document.getElementById('editStudentId').value;
+        const name = document.getElementById('editStudentName').value;
+        const grade = document.getElementById('editStudentGrade').value;
+        const classVal = document.getElementById('editStudentClass').value;
+        const phone = document.getElementById('editStudentPhone').value;
+        const parent_phone = document.getElementById('editStudentParentPhone').value;
+        
+        try {
+            const response = await fetch(`/api/update_student/${student_id}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name, grade, class: classVal, phone, parent_phone })
+            });
+            const data = await response.json();
+            
+            if (data.success) {
+                showAlert(data.message, 'success');
+                closeStudentModal();
+                loadStudents();
+            } else {
+                showAlert(data.message, 'error');
+            }
+        } catch(e) {
+            showAlert(lang === 'ar' ? 'خطأ في الاتصال' : 'Connection error', 'error');
+        }
+    }
+
+    async function deleteStudent(student_id) {
+        if (currentUserRole !== 'admin') {
+            showAlert(lang === 'ar' ? 'ليس لديك صلاحية لحذف الطلاب' : 'You do not have permission to delete students', 'error');
+            return;
+        }
+        
+        if (!confirm(`${lang === 'ar' ? 'هل أنت متأكد من حذف الطالب' : 'Are you sure you want to delete student'} ${student_id}?\n${lang === 'ar' ? 'ملاحظة: سيتم حذف جميع سجلات حضوره أيضاً!' : 'Note: All attendance records will also be deleted!'}`)) return;
+        
+        try {
+            const response = await fetch(`/api/delete_student/${student_id}`, { method: 'DELETE' });
+            const data = await response.json();
+            
+            if (data.success) {
+                showAlert(data.message, 'success');
+                loadStudents();
+            } else {
+                showAlert(data.message, 'error');
+            }
+        } catch(e) {
+            showAlert(lang === 'ar' ? 'خطأ في الاتصال' : 'Connection error', 'error');
+        }
+    }
+
+    function closeStudentModal() {
+        document.getElementById('editStudentModal').style.display = 'none';
+    }
+
+    // ربط الأحداث
+    document.getElementById('searchInput').addEventListener('input', filterAndDisplay);
+    document.getElementById('filterGrade').addEventListener('change', filterAndDisplay);
+    document.getElementById('filterClass').addEventListener('change', filterAndDisplay);
+    
+    window.onclick = function(event) {
+        if (event.target === document.getElementById('editStudentModal')) {
+            closeStudentModal();
+        }
+    }
+    
+    // تحميل البيانات عند فتح الصفحة
+    loadStudents();
+</script>
+{% endblock %}
