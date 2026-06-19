@@ -993,7 +993,8 @@ def license_required(f):
             return redirect(url_for('login'))
 
         username = session.get('username')
-        if session.get('role') == 'admin':
+        # ✅ التعديل: السماح لكل من admin و super_admin بتجاوز فحص الترخيص
+        if session.get('role') in ['admin', 'super_admin']:
             return f(*args, **kwargs)
         
         is_licensed, license_message = check_user_license_by_days(username)
@@ -1126,7 +1127,8 @@ def activate_device_page():
 @app.route('/admin/licenses')
 @login_required
 def admin_licenses_page():
-    if session.get('role') != 'admin':
+    # ✅ التعديل: السماح لكل من admin و super_admin
+    if session.get('role') not in ['admin', 'super_admin']:
         return redirect(url_for('home'))
     try:
         result = supabase.table("device_licenses").select("*").order("created_at", desc=True).execute()
@@ -1138,7 +1140,7 @@ def admin_licenses_page():
 @app.route('/api/admin/create_license', methods=['POST'])
 @login_required
 def create_license_api():
-    if session.get('role') != 'admin':
+    if session.get('role') not in ['admin', 'super_admin']:
         return jsonify({"success": False, "message": "غير مصرح"}), 403
     
     hardware_id = request.form.get('hardware_id')
@@ -1187,7 +1189,7 @@ def create_license_api():
 @app.route('/api/admin/revoke_license/<int:license_id>')
 @login_required
 def revoke_license(license_id):
-    if session.get('role') != 'admin':
+    if session.get('role') not in ['admin', 'super_admin']:
         return jsonify({"success": False, "message": "غير مصرح"}), 403
     try:
         supabase.table("device_licenses").delete().eq("id", license_id).execute()
@@ -1198,7 +1200,7 @@ def revoke_license(license_id):
 @app.route('/api/admin/check_license')
 @login_required
 def check_license_api():
-    if session.get('role') != 'admin':
+    if session.get('role') not in ['admin', 'super_admin']:
         return jsonify({"success": False, "message": "غير مصرح"}), 403
     is_licensed = check_device_license()
     return jsonify({"success": True, "is_licensed": is_licensed, "hardware_id": get_hardware_id()})
@@ -1207,7 +1209,7 @@ def check_license_api():
 @login_required
 def device_status_api():
     """API للتحقق من حالة جهاز محدد (للمدير فقط)"""
-    if session.get('role') != 'admin':
+    if session.get('role') not in ['admin', 'super_admin']:
         return jsonify({"success": False, "message": "غير مصرح"}), 403
     
     hardware_id = request.args.get('hardware_id', '')
@@ -1342,7 +1344,8 @@ def process_excel_file(file_content, filename):
 @app.route('/admin/upload_students', methods=['GET', 'POST'])
 @login_required
 def admin_upload_students():
-    if session.get('role') != 'admin':
+    # ✅ التعديل: السماح لكل من admin و super_admin
+    if session.get('role') not in ['admin', 'super_admin']:
         return redirect(url_for('home'))
     
     if request.method == 'POST':
@@ -1406,7 +1409,7 @@ def admin_upload_students():
 @app.route('/api/admin/export_current_students')
 @login_required
 def export_current_students():
-    if session.get('role') != 'admin':
+    if session.get('role') not in ['admin', 'super_admin']:
         return jsonify({"success": False, "message": "غير مصرح"}), 403
     
     try:
@@ -1459,7 +1462,7 @@ def export_current_students():
 @app.route('/debug_student_ids')
 @login_required
 def debug_student_ids():
-    if session.get('role') != 'admin':
+    if session.get('role') not in ['admin', 'super_admin']:
         return jsonify({"error": "غير مصرح"}), 403
     
     students = get_live_students()
@@ -1542,7 +1545,7 @@ def debug_student_ids():
 @app.route('/admin/clean_student_ids')
 @login_required
 def admin_clean_student_ids():
-    if session.get('role') != 'admin':
+    if session.get('role') not in ['admin', 'super_admin']:
         return jsonify({"error": "غير مصرح"}), 403
     
     students = get_live_students()
@@ -1616,7 +1619,8 @@ def admin_clean_student_ids():
 @login_required
 def users_list():
     try:
-        if session.get('role') != 'admin':
+        # ✅ التعديل: السماح لكل من admin و super_admin
+        if session.get('role') not in ['admin', 'super_admin']:
             return redirect(url_for('home'))
 
         users = load_users()
@@ -1649,7 +1653,7 @@ def users_list():
 @app.route("/api/users")
 @login_required
 def api_users():
-    if session.get('role') != 'admin':
+    if session.get('role') not in ['admin', 'super_admin']:
         return jsonify({"success": False, "message": "غير مصرح"}), 403
     
     users = load_users()
@@ -1676,7 +1680,7 @@ def api_users():
 @app.route("/api/create_user", methods=["POST"])
 @login_required
 def api_create_user():
-    if session.get('role') != 'admin':
+    if session.get('role') not in ['admin', 'super_admin']:
         return jsonify({"success": False, "message": "غير مصرح"}), 403
     
     data = request.get_json()
@@ -1697,7 +1701,7 @@ def api_create_user():
 @app.route("/api/update_user/<username>", methods=["PUT"])
 @login_required
 def api_update_user(username):
-    if session.get('role') != 'admin':
+    if session.get('role') not in ['admin', 'super_admin']:
         return jsonify({"success": False, "message": "غير مصرح"}), 403
     
     data = request.get_json()
@@ -1711,7 +1715,7 @@ def api_update_user(username):
 @app.route("/api/delete_user/<username>", methods=["DELETE"])
 @login_required
 def api_delete_user(username):
-    if session.get('role') != 'admin':
+    if session.get('role') not in ['admin', 'super_admin']:
         return jsonify({"success": False, "message": "غير مصرح"}), 403
     
     success, message = delete_user(username)
@@ -1870,7 +1874,8 @@ def class_reports():
 @app.route("/backup")
 @license_required
 def backup_page():
-    if session.get('role') != 'admin':
+    # ✅ التعديل: السماح لكل من admin و super_admin
+    if session.get('role') not in ['admin', 'super_admin']:
         return redirect(url_for('home'))
     return render_template("backup.html")
 
@@ -1975,7 +1980,7 @@ def register_attendance():
 @app.route("/api/create_backup")
 @license_required
 def manual_backup():
-    if session.get('role') != 'admin':
+    if session.get('role') not in ['admin', 'super_admin']:
         return jsonify({"success": False, "message": "غير مصرح"})
 
     success, message = create_backup()
@@ -1984,7 +1989,7 @@ def manual_backup():
 @app.route("/api/list_backups")
 @license_required
 def list_backups():
-    if session.get('role') != 'admin':
+    if session.get('role') not in ['admin', 'super_admin']:
         return jsonify({"success": False, "message": "غير مصرح"})
 
     backup_dir = "backups"
@@ -2008,7 +2013,7 @@ def list_backups():
 @app.route("/api/download_backup/<filename>")
 @license_required
 def download_backup(filename):
-    if session.get('role') != 'admin':
+    if session.get('role') not in ['admin', 'super_admin']:
         return jsonify({"success": False, "message": "غير مصرح"})
 
     backup_path = os.path.join("backups", filename)
