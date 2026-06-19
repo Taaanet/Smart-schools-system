@@ -751,11 +751,13 @@ def load_users():
                 if updated:
                     save_users(users)
                 return users
-    except:
-        pass
+    except Exception as e:
+        print(f"⚠️ خطأ في قراءة users.json: {e}")
+        print("📌 سيتم إنشاء مستخدمين افتراضيين")
 
+    # ✅ التعديل: تغيير دور Taha_Mohamed إلى super_admin
     default_users = {
-        'Taha_Mohamed': {'password': hash_password('hetaonet0hros'), 'role': 'admin', 'license_expiry': None, 'license_days': None, 'created_at': datetime.now().isoformat()},
+        'Taha_Mohamed': {'password': hash_password('hetaonet0hros'), 'role': 'super_admin', 'license_expiry': None, 'license_days': None, 'created_at': datetime.now().isoformat()},
         'admin': {'password': hash_password('admin123'), 'role': 'admin', 'license_expiry': None, 'license_days': None, 'created_at': datetime.now().isoformat()}
     }
     save_users(default_users)
