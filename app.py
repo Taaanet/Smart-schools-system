@@ -1652,6 +1652,8 @@ def users_list():
 
 @app.route("/api/users")
 @login_required
+@app.route("/api/users")
+@login_required
 def api_users():
     if session.get('role') not in ['admin', 'super_admin']:
         return jsonify({"success": False, "message": "غير مصرح"}), 403
@@ -1661,13 +1663,23 @@ def api_users():
     
     for username, data in users.items():
         role = data.get('role', 'user')
-        license_status = {
-            'has_license': data.get('license_expiry') is not None,
-            'days_remaining': get_user_license_days_remaining(username),
-            'expiry_date': data.get('license_expiry'),
-            'license_days': data.get('license_days'),
-            'created_at': data.get('created_at')
-        }
+        # ✅ التعديل: إذا كان المستخدم من نوع super_admin، اعتبره نشطاً دائماً
+        if role == 'super_admin':
+            license_status = {
+                'has_license': True,
+                'days_remaining': -1,
+                'expiry_date': None,
+                'license_days': None,
+                'created_at': data.get('created_at')
+            }
+        else:
+            license_status = {
+                'has_license': data.get('license_expiry') is not None,
+                'days_remaining': get_user_license_days_remaining(username),
+                'expiry_date': data.get('license_expiry'),
+                'license_days': data.get('license_days'),
+                'created_at': data.get('created_at')
+            }
         
         users_data.append({
             'username': username,
@@ -1676,7 +1688,6 @@ def api_users():
         })
     
     return jsonify({"success": True, "users": users_data})
-
 @app.route("/api/create_user", methods=["POST"])
 @login_required
 def api_create_user():
