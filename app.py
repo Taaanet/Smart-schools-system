@@ -1,4 +1,5 @@
-from flask import Flask, render_template, request, jsonify, session, redirect, url_for, send_file, make_response, flashfrom flask_cors import CORS
+from flask import Flask, render_template, request, jsonify, session, redirect, url_for, send_file, make_response, flash
+from flask_cors import CORS
 from flask_mail import Mail, Message
 from datetime import datetime, timedelta, time
 import os
