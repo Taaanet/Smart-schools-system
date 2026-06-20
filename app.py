@@ -2690,7 +2690,34 @@ def admin_subscriptions():
 @super_admin_required
 def school_settings():
     """صفحة إعدادات المدرسة الحالية"""
+    print(f"🔍 Host: {request.host}")
+    
     school = get_school_from_domain(request.host)
+    
+    # ✅ إذا لم توجد المدرسة، قم بإنشائها تلقائياً
+    if not school:
+        try:
+            subdomain = request.host.split('.')[0]
+            print(f"⚠️ لم يتم العثور على مدرسة، جاري إنشاء مدرسة افتراضية للنطاق: {subdomain}")
+            
+            new_school = {
+                'name': f'مدرسة {subdomain}',
+                'subdomain': subdomain,
+                'plan': 'premium',
+                'is_active': True,
+                'license_expiry': (datetime.now() + timedelta(days=365)).isoformat()
+            }
+            
+            result = supabase.table("schools").insert(new_school).execute()
+            school = result.data[0] if result.data else None
+            flash('تم إنشاء المدرسة تلقائياً', 'success')
+        except Exception as e:
+            print(f"❌ خطأ في إنشاء المدرسة: {e}")
+            flash('حدث خطأ في إنشاء المدرسة', 'error')
+            return redirect(url_for('admin_dashboard'))
+    
+    print(f"🔍 School found: {school}")
+    
     if not school:
         flash('المدرسة غير موجودة', 'error')
         return redirect(url_for('admin_dashboard'))
