@@ -51,6 +51,7 @@
     .perm-read { background: #bee3f8; color: #2c5282; }
     .perm-write { background: #c6f6d5; color: #22543d; }
     .perm-delete { background: #fed7d7; color: #742a2a; }
+    .perm-super { background: #fefcbf; color: #744210; }
     
     .license-active { background: #c6f6d5; color: #22543d; padding: 5px 12px; border-radius: 20px; display: inline-block; font-weight: bold; }
     .license-inactive { background: #fed7d7; color: #742a2a; padding: 5px 12px; border-radius: 20px; display: inline-block; font-weight: bold; }
@@ -164,7 +165,8 @@
         <span class="permission-badge perm-read">📖 معلم: قراءة فقط</span>
         <span class="permission-badge perm-write">✏️ محرر: قراءة + إضافة + تعديل</span>
         <span class="permission-badge perm-delete">👑 مدير: صلاحيات كاملة</span>
-        <span class="permission-badge" style="background:#feebc8;">⏰ المدير: ترخيص غير محدود</span>
+        <span class="permission-badge perm-super">⭐ مدير عام: صلاحيات كاملة + إدارة المدارس</span>
+        <span class="permission-badge" style="background:#feebc8;">⏰ المدير والمدير العام: ترخيص غير محدود</span>
     </div>
 </div>
 
@@ -183,7 +185,7 @@
                 </tr>
             </thead>
             <tbody id="usersTableBody">
-                <tr><td colspan="7" style="text-align:center;">جاري التحميل...<\/td><\/tr>
+                <tr><td colspan="7" style="text-align:center;">جاري التحميل...</td></tr>
             </tbody>
         </table>
     </div>
@@ -234,10 +236,10 @@
         }
     }
 
-    // عرض حالة الترخيص
+    // ✅ التعديل: عرض حالة الترخيص بشكل صحيح لـ super_admin
     function getLicenseStatusBadge(licenseData, role) {
-        // المدير: ترخيص غير محدود
-        if (role === 'admin') {
+        // المدير العام والمدير: ترخيص غير محدود
+        if (role === 'super_admin' || role === 'admin') {
             return '<span class="license-unlimited">♾️ غير محدود</span>';
         }
         
@@ -252,9 +254,9 @@
         }
     }
 
-    // عرض الحد الأقصى للأيام
+    // ✅ التعديل: عرض الحد الأقصى للأيام لـ super_admin
     function getMaxDaysDisplay(licenseData, role) {
-        if (role === 'admin') {
+        if (role === 'super_admin' || role === 'admin') {
             return '♾️ غير محدود';
         }
         
@@ -262,12 +264,10 @@
             return '-';
         }
         
-        // عرض عدد أيام الترخيص من license_days
         if (licenseData.license_days && licenseData.license_days > 0) {
             return licenseData.license_days;
         }
         
-        // إذا كان لدينا expiry_date و created_at نحسب المدة
         if (licenseData.expiry_date && licenseData.created_at) {
             try {
                 const expiry = new Date(licenseData.expiry_date);
@@ -282,9 +282,9 @@
         return '-';
     }
 
-    // عرض الأيام المتبقية
+    // ✅ التعديل: عرض الأيام المتبقية لـ super_admin
     function getRemainingDaysDisplay(licenseData, role) {
-        if (role === 'admin') {
+        if (role === 'super_admin' || role === 'admin') {
             return '♾️ غير محدود';
         }
         
@@ -301,18 +301,21 @@
         return remaining;
     }
 
-    // اسم الدور بالعربية
+    // ✅ التعديل: اسم الدور بالعربية (إضافة super_admin)
     function getRoleName(role) {
         switch(role) {
+            case 'super_admin': return 'مدير عام';
             case 'admin': return 'مدير';
             case 'editor': return 'محرر';
             default: return 'معلم';
         }
     }
 
-    // عرض الصلاحيات
+    // ✅ التعديل: عرض الصلاحيات (إضافة super_admin)
     function getPermissionsHtml(role) {
         switch(role) {
+            case 'super_admin':
+                return '<span class="permission-badge perm-delete">📖 قراءة</span> <span class="permission-badge perm-write">✏️ إضافة</span> <span class="permission-badge perm-delete">🗑️ حذف</span> <span class="permission-badge perm-super">⭐ إدارة مدارس</span>';
             case 'admin':
                 return '<span class="permission-badge perm-delete">📖 قراءة</span> <span class="permission-badge perm-write">✏️ إضافة</span> <span class="permission-badge perm-delete">🗑️ حذف</span>';
             case 'editor':
@@ -422,7 +425,6 @@
         document.getElementById('editRole').value = role;
         document.getElementById('editPassword').value = '';
         
-        // تعيين مدة الترخيص الحالية إن وجدت
         const licenseDaysInput = document.getElementById('editLicenseDays');
         if (licenseStatus && licenseStatus.license_days) {
             licenseDaysInput.value = licenseStatus.license_days;
@@ -504,14 +506,12 @@
         document.getElementById('editModal').style.display = 'none';
     }
 
-    // إغلاق المودال عند النقر خارجها
     window.onclick = function(event) {
         if (event.target === document.getElementById('editModal')) {
             closeModal();
         }
     }
 
-    // تحميل المستخدمين عند فتح الصفحة
     loadUsers();
 </script>
 {% endblock %}
