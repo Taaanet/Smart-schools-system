@@ -59,7 +59,6 @@
 <div class="container">
     <h1 style="margin-bottom: 25px;">⚙️ إعدادات المدرسة</h1>
     
-    <!-- عرض رسائل التنبيه -->
     {% with messages = get_flashed_messages(with_categories=true) %}
         {% if messages %}
             {% for category, message in messages %}
@@ -130,6 +129,12 @@
 
 <script>
     async function saveSettings() {
+        const schoolId = '{{ school.id if school else "" }}';
+        if (!schoolId) {
+            alert('❌ لا يمكن حفظ الإعدادات: المدرسة غير محددة');
+            return;
+        }
+
         const settings = {
             school_name: document.getElementById('schoolName').value,
             school_logo: document.getElementById('schoolLogo').value,
@@ -142,7 +147,7 @@
         };
         
         try {
-            const response = await fetch('/api/admin/update_school/{{ school.id }}', {
+            const response = await fetch('/api/admin/update_school/' + schoolId, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(settings)
