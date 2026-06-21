@@ -236,7 +236,7 @@
         }
     }
 
-    // ✅ التعديل: عرض حالة الترخيص بشكل صحيح لـ super_admin
+    // عرض حالة الترخيص بشكل صحيح لـ super_admin
     function getLicenseStatusBadge(licenseData, role) {
         // المدير العام والمدير: ترخيص غير محدود
         if (role === 'super_admin' || role === 'admin') {
@@ -254,7 +254,7 @@
         }
     }
 
-    // ✅ التعديل: عرض الحد الأقصى للأيام لـ super_admin
+    // عرض الحد الأقصى للأيام لـ super_admin
     function getMaxDaysDisplay(licenseData, role) {
         if (role === 'super_admin' || role === 'admin') {
             return '♾️ غير محدود';
@@ -282,7 +282,7 @@
         return '-';
     }
 
-    // ✅ التعديل: عرض الأيام المتبقية لـ super_admin
+    // عرض الأيام المتبقية لـ super_admin
     function getRemainingDaysDisplay(licenseData, role) {
         if (role === 'super_admin' || role === 'admin') {
             return '♾️ غير محدود';
@@ -301,7 +301,7 @@
         return remaining;
     }
 
-    // ✅ التعديل: اسم الدور بالعربية (إضافة super_admin)
+    // اسم الدور بالعربية (إضافة super_admin)
     function getRoleName(role) {
         switch(role) {
             case 'super_admin': return 'مدير عام';
@@ -311,7 +311,7 @@
         }
     }
 
-    // ✅ التعديل: عرض الصلاحيات (إضافة super_admin)
+    // عرض الصلاحيات (إضافة super_admin)
     function getPermissionsHtml(role) {
         switch(role) {
             case 'super_admin':

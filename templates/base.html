@@ -372,7 +372,7 @@
             <span class="current-date" id="currentDate"></span>
             
             <!-- عرض أيام الترخيص المتبقية -->
-            {% if session.get('role') != 'admin' %}
+            {% if session.get('role') != 'admin' and session.get('role') != 'super_admin' %}
                 {% if license_days_remaining is defined %}
                     {% if license_days_remaining == -1 %}
                         <span class="license-btn">
@@ -429,21 +429,23 @@
         <a href="/class_reports" class="nav-btn nav-btn-info"><i class="fas fa-users"></i> {{ t('class_reports') }}</a>
         <a href="/manage_students" class="nav-btn nav-btn-info"><i class="fas fa-user-graduate"></i> {{ t('manage_students') }}</a>
         
+        <!-- الأزرار الإدارية (للمدير والمدير العام) -->
         {% if session.get('role') == 'admin' or session.get('role') == 'super_admin' %}
-<a href="/backup" class="nav-btn nav-btn-danger"><i class="fas fa-database"></i> {{ t('backup') }}</a>
-<a href="/users_list" class="nav-btn nav-btn-danger"><i class="fas fa-users-cog"></i> {{ t('users') }}</a>
-<a href="/admin/licenses" class="nav-btn nav-btn-danger"><i class="fas fa-key"></i> {{ t('licenses') }}</a>
-<a href="/admin/upload_students" class="nav-btn nav-btn-warning"><i class="fas fa-file-excel"></i> {{ t('upload_students') }}</a>
-{% endif %}
+            <a href="/backup" class="nav-btn nav-btn-danger"><i class="fas fa-database"></i> {{ t('backup') }}</a>
+            <a href="/users_list" class="nav-btn nav-btn-danger"><i class="fas fa-users-cog"></i> {{ t('users') }}</a>
+            <a href="/admin/licenses" class="nav-btn nav-btn-danger"><i class="fas fa-key"></i> {{ t('licenses') }}</a>
+            <a href="/admin/upload_students" class="nav-btn nav-btn-warning"><i class="fas fa-file-excel"></i> {{ t('upload_students') }}</a>
+            <a href="/send_notifications" class="nav-btn nav-btn-info"><i class="fas fa-envelope"></i> 📧 إرسال إشعارات</a>
+        {% endif %}
 
-{% if session.get('role') == 'super_admin' %}
-<hr style="border: none; border-top: 2px dashed #e2e8f0; margin: 5px 0; width: 100%;">
-<a href="/admin/dashboard" class="nav-btn nav-btn-danger"><i class="fas fa-chart-pie"></i> 📊 لوحة التحكم</a>
-<a href="/admin/schools" class="nav-btn nav-btn-danger"><i class="fas fa-school"></i> 🏫 إدارة المدارس</a>
-<a href="/admin/subscriptions" class="nav-btn nav-btn-danger"><i class="fas fa-credit-card"></i> 🔑 الاشتراكات</a>
-<a href="/school/settings" class="nav-btn nav-btn-info"><i class="fas fa-cog"></i> ⚙️ إعدادات المدرسة</a>
-{% endif %}
-
+        <!-- أزرار المدير العام فقط -->
+        {% if session.get('role') == 'super_admin' %}
+            <hr style="border: none; border-top: 2px dashed #e2e8f0; margin: 5px 0; width: 100%;">
+            <a href="/admin/dashboard" class="nav-btn nav-btn-danger"><i class="fas fa-chart-pie"></i> 📊 لوحة التحكم</a>
+            <a href="/admin/schools" class="nav-btn nav-btn-danger"><i class="fas fa-school"></i> 🏫 إدارة المدارس</a>
+            <a href="/admin/subscriptions" class="nav-btn nav-btn-danger"><i class="fas fa-credit-card"></i> 🔑 الاشتراكات</a>
+            <a href="/school/settings" class="nav-btn nav-btn-info"><i class="fas fa-cog"></i> ⚙️ إعدادات المدرسة</a>
+        {% endif %}
     </div>
 
     {% block content %}{% endblock %}

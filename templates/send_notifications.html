@@ -1,0 +1,411 @@
+{% extends "base.html" %}
+{% block title %}📧 إرسال إشعارات{% endblock %}
+
+{% block extra_css %}
+<style>
+    .notification-card {
+        background: white;
+        border-radius: 20px;
+        padding: 25px;
+        margin-bottom: 25px;
+        box-shadow: 0 5px 20px rgba(0,0,0,0.08);
+    }
+    .notification-card h3 {
+        margin-bottom: 20px;
+        padding-bottom: 10px;
+        border-bottom: 2px solid #667eea;
+    }
+    .form-group {
+        display: flex;
+        gap: 15px;
+        flex-wrap: wrap;
+        margin-bottom: 15px;
+        align-items: center;
+    }
+    .form-group label {
+        min-width: 120px;
+        font-weight: 600;
+        color: #4a5568;
+    }
+    .form-group input, .form-group select, .form-group textarea {
+        flex: 1;
+        min-width: 200px;
+        padding: 10px 15px;
+        border: 2px solid #e2e8f0;
+        border-radius: 10px;
+        font-size: 14px;
+    }
+    .form-group textarea {
+        min-height: 80px;
+        resize: vertical;
+    }
+    .btn-send {
+        background: linear-gradient(135deg, #48bb78, #38a169);
+        color: white;
+        border: none;
+        padding: 12px 30px;
+        border-radius: 12px;
+        cursor: pointer;
+        font-weight: bold;
+        font-size: 16px;
+    }
+    .btn-send:hover { transform: translateY(-2px); }
+    .btn-send-absent { background: linear-gradient(135deg, #e53e3e, #c53030); }
+    .btn-send-late { background: linear-gradient(135deg, #ed8936, #dd6b20); }
+    .btn-preview { background: linear-gradient(135deg, #4299e1, #3182ce); }
+    
+    .stats-summary {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+        gap: 15px;
+        margin-bottom: 20px;
+    }
+    .stat-item {
+        background: #f7fafc;
+        padding: 15px;
+        border-radius: 12px;
+        text-align: center;
+    }
+    .stat-item .number { font-size: 28px; font-weight: bold; }
+    .stat-item .label { color: #718096; font-size: 13px; }
+    .stat-item.present .number { color: #48bb78; }
+    .stat-item.late .number { color: #ed8936; }
+    .stat-item.absent .number { color: #e53e3e; }
+    
+    .result-box {
+        background: #f7fafc;
+        border-radius: 12px;
+        padding: 15px;
+        margin-top: 15px;
+        max-height: 300px;
+        overflow-y: auto;
+        display: none;
+    }
+    .result-box .success { color: #48bb78; }
+    .result-box .error { color: #e53e3e; }
+    
+    .alert {
+        padding: 12px;
+        border-radius: 12px;
+        margin-bottom: 15px;
+        display: none;
+    }
+    .alert-success { background: #c6f6d5; color: #22543d; }
+    .alert-error { background: #fed7d7; color: #742a2a; }
+    .alert-info { background: #bee3f8; color: #2c5282; }
+    
+    .email-status {
+        display: inline-block;
+        padding: 4px 12px;
+        border-radius: 20px;
+        font-size: 12px;
+        font-weight: 600;
+    }
+    .email-status.configured { background: #c6f6d5; color: #22543d; }
+    .email-status.not-configured { background: #fed7d7; color: #742a2a; }
+    
+    @media (max-width: 768px) {
+        .form-group { flex-direction: column; align-items: stretch; }
+        .form-group label { min-width: auto; }
+        .stats-summary { grid-template-columns: 1fr 1fr; }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container">
+    <h1 style="margin-bottom: 25px;">📧 إرسال إشعارات بريدية</h1>
+    
+    <div id="alert" class="alert"></div>
+    
+    <!-- إحصائيات سريعة -->
+    <div id="statsContainer" class="stats-summary" style="display: none;">
+        <div class="stat-item present">
+            <div class="number" id="statPresent">0</div>
+            <div class="label">✅ حاضر</div>
+        </div>
+        <div class="stat-item late">
+            <div class="number" id="statLate">0</div>
+            <div class="label">⏰ متأخر</div>
+        </div>
+        <div class="stat-item absent">
+            <div class="number" id="statAbsent">0</div>
+            <div class="label">❌ غائب</div>
+        </div>
+        <div class="stat-item">
+            <div class="number" id="statTotal">0</div>
+            <div class="label">📚 الإجمالي</div>
+        </div>
+    </div>
+    
+    <!-- نموذج الإشعارات -->
+    <div class="notification-card">
+        <h3>📋 إعدادات الإشعار</h3>
+        
+        <div class="form-group">
+            <label>📅 التاريخ:</label>
+            <input type="date" id="notificationDate" value="{{ today }}">
+        </div>
+        
+        <div class="form-group">
+            <label>📚 الصف:</label>
+            <select id="filterGrade">
+                <option value="">جميع الصفوف</option>
+                <option value="الأول الثانوي">الأول الثانوي</option>
+                <option value="الثاني الثانوي">الثاني الثانوي</option>
+                <option value="الثالث الثانوي">الثالث الثانوي</option>
+            </select>
+        </div>
+        
+        <div class="form-group">
+            <label>🏫 الشعبة:</label>
+            <select id="filterClass">
+                <option value="">جميع الشعب</option>
+                <option value="1">شعبة 1</option>
+                <option value="2">شعبة 2</option>
+                <option value="3">شعبة 3</option>
+                <option value="4">شعبة 4</option>
+                <option value="5">شعبة 5</option>
+                <option value="6">شعبة 6</option>
+            </select>
+        </div>
+        
+        <div class="form-group">
+            <label>👤 المستلم:</label>
+            <select id="recipientType">
+                <option value="both">👥 الطالب وولي الأمر</option>
+                <option value="student">👤 الطالب فقط</option>
+                <option value="parent">👨‍👦 ولي الأمر فقط</option>
+            </select>
+        </div>
+        
+        <div class="form-group">
+            <label>📝 رسالة مخصصة:</label>
+            <textarea id="customMessage" placeholder="أضف رسالة مخصصة (اختياري)"></textarea>
+        </div>
+        
+        <div style="display: flex; gap: 15px; flex-wrap: wrap; margin-top: 15px;">
+            <button class="btn-preview" onclick="previewStudents()">👁️ معاينة الطلاب</button>
+            <button class="btn-send btn-send-absent" onclick="sendNotifications('absent')">❌ إرسال للغائبين</button>
+            <button class="btn-send btn-send-late" onclick="sendNotifications('late')">⏰ إرسال للمتأخرين</button>
+            <button class="btn-send" onclick="sendNotifications('all')">📧 إرسال للجميع</button>
+        </div>
+    </div>
+    
+    <!-- نتائج المعاينة -->
+    <div class="notification-card" id="previewCard" style="display: none;">
+        <h3>👁️ معاينة الطلاب</h3>
+        <div id="previewContent"></div>
+    </div>
+    
+    <!-- نتائج الإرسال -->
+    <div class="notification-card" id="resultCard" style="display: none;">
+        <h3>📊 نتائج الإرسال</h3>
+        <div id="resultContent"></div>
+    </div>
+</div>
+
+<script>
+    // ===== عرض التنبيهات =====
+    function showAlert(message, type) {
+        const alertDiv = document.getElementById('alert');
+        alertDiv.className = `alert alert-${type}`;
+        alertDiv.innerHTML = message;
+        alertDiv.style.display = 'block';
+        setTimeout(() => { alertDiv.style.display = 'none'; }, 5000);
+    }
+    
+    // ===== معاينة الطلاب =====
+    async function previewStudents() {
+        const date = document.getElementById('notificationDate').value;
+        const grade = document.getElementById('filterGrade').value;
+        const classVal = document.getElementById('filterClass').value;
+        
+        if (!date) {
+            showAlert('⚠️ الرجاء اختيار التاريخ', 'error');
+            return;
+        }
+        
+        const previewCard = document.getElementById('previewCard');
+        const previewContent = document.getElementById('previewContent');
+        previewContent.innerHTML = '<span style="color:#4299e1;">⏳ جاري التحميل...</span>';
+        previewCard.style.display = 'block';
+        
+        try {
+            const response = await fetch('/api/get_students_with_status', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ date, grade, class: classVal })
+            });
+            const data = await response.json();
+            
+            if (data.success) {
+                // تحديث الإحصائيات
+                document.getElementById('statPresent').innerHTML = data.summary.present;
+                document.getElementById('statLate').innerHTML = data.summary.late;
+                document.getElementById('statAbsent').innerHTML = data.summary.absent;
+                document.getElementById('statTotal').innerHTML = data.summary.total;
+                document.getElementById('statsContainer').style.display = 'grid';
+                
+                // عرض الطلاب
+                let html = `
+                    <div style="overflow-x: auto;">
+                        <table style="width:100%; border-collapse: collapse;">
+                            <thead>
+                                <tr style="background:#f7fafc;">
+                                    <th style="padding:10px;">#</th>
+                                    <th style="padding:10px;">الطالب</th>
+                                    <th style="padding:10px;">الصف</th>
+                                    <th style="padding:10px;">الشعبة</th>
+                                    <th style="padding:10px;">الحالة</th>
+                                    <th style="padding:10px;">الوقت</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                `;
+                
+                data.students.forEach((item, index) => {
+                    const statusColor = item.status === 'حاضر في الوقت' ? '#48bb78' : 
+                                       (item.status === 'متأخر' ? '#ed8936' : '#e53e3e');
+                    const statusEmoji = item.status === 'حاضر في الوقت' ? '✅' : 
+                                       (item.status === 'متأخر' ? '⏰' : '❌');
+                    html += `
+                        <tr style="border-bottom:1px solid #e2e8f0;">
+                            <td style="padding:10px;text-align:center;">${index + 1}</td>
+                            <td style="padding:10px;"><strong>${item.student.name}</strong></td>
+                            <td style="padding:10px;text-align:center;">${item.student.grade}</td>
+                            <td style="padding:10px;text-align:center;">${item.student.class}</td>
+                            <td style="padding:10px;text-align:center;color:${statusColor};font-weight:bold;">
+                                ${statusEmoji} ${item.status}
+                            </td>
+                            <td style="padding:10px;text-align:center;">${item.time}</td>
+                        </tr>
+                    `;
+                });
+                
+                html += `
+                            </tbody>
+                        </table>
+                    </div>
+                    <p style="margin-top:15px;font-size:13px;color:#718096;">
+                        📊 الإجمالي: ${data.summary.total} | 
+                        ✅ حاضر: ${data.summary.present} | 
+                        ⏰ متأخر: ${data.summary.late} | 
+                        ❌ غائب: ${data.summary.absent}
+                    </p>
+                `;
+                
+                previewContent.innerHTML = html;
+            } else {
+                previewContent.innerHTML = `<span style="color:#e53e3e;">❌ ${data.message}</span>`;
+            }
+        } catch(e) {
+            previewContent.innerHTML = '<span style="color:#e53e3e;">❌ حدث خطأ في الاتصال</span>';
+        }
+    }
+    
+    // ===== إرسال الإشعارات =====
+    async function sendNotifications(type) {
+        const date = document.getElementById('notificationDate').value;
+        const grade = document.getElementById('filterGrade').value;
+        const classVal = document.getElementById('filterClass').value;
+        const recipientType = document.getElementById('recipientType').value;
+        const customMessage = document.getElementById('customMessage').value.trim();
+        
+        if (!date) {
+            showAlert('⚠️ الرجاء اختيار التاريخ', 'error');
+            return;
+        }
+        
+        const typeNames = {
+            'absent': 'الغائبين',
+            'late': 'المتأخرين',
+            'all': 'جميع الطلاب'
+        };
+        
+        if (!confirm(`⚠️ هل أنت متأكد من إرسال إشعارات لـ ${typeNames[type]}؟`)) {
+            return;
+        }
+        
+        const resultCard = document.getElementById('resultCard');
+        const resultContent = document.getElementById('resultContent');
+        resultContent.innerHTML = '<span style="color:#4299e1;">⏳ جاري الإرسال...</span>';
+        resultCard.style.display = 'block';
+        
+        try {
+            const response = await fetch('/api/send_attendance_notifications', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ 
+                    date, 
+                    grade, 
+                    class: classVal,
+                    notification_type: type,
+                    recipient_type: recipientType,
+                    custom_message: customMessage || null
+                })
+            });
+            const data = await response.json();
+            
+            if (data.success) {
+                let html = `
+                    <div style="background:#c6f6d5;padding:15px;border-radius:10px;margin-bottom:15px;">
+                        <p style="margin:0;font-weight:bold;color:#22543d;">✅ ${data.message}</p>
+                        <p style="margin:5px 0 0;color:#22543d;">عدد الطلاب: ${data.total_students} | تم الإرسال: ${data.sent_count}</p>
+                    </div>
+                `;
+                
+                if (data.results && data.results.length > 0) {
+                    html += `
+                        <div style="max-height:200px;overflow-y:auto;">
+                            <table style="width:100%;border-collapse:collapse;font-size:14px;">
+                                <thead>
+                                    <tr style="background:#f7fafc;">
+                                        <th style="padding:8px;">الطالب</th>
+                                        <th style="padding:8px;">الحالة</th>
+                                        <th style="padding:8px;">تم الإرسال</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                    `;
+                    data.results.forEach(item => {
+                        const statusIcon = item.status === 'غائب' ? '❌' : '⏰';
+                        html += `
+                            <tr style="border-bottom:1px solid #e2e8f0;">
+                                <td style="padding:8px;">${item.student}</td>
+                                <td style="padding:8px;">${statusIcon} ${item.status}</td>
+                                <td style="padding:8px;text-align:center;">${item.sent_to} مستلم</td>
+                            </tr>
+                        `;
+                    });
+                    html += `
+                                </tbody>
+                            </table>
+                        </div>
+                    `;
+                }
+                
+                if (data.errors && data.errors.length > 0) {
+                    html += `
+                        <div style="background:#fed7d7;padding:15px;border-radius:10px;margin-top:15px;">
+                            <p style="margin:0;font-weight:bold;color:#742a2a;">⚠️ أخطاء:</p>
+                            <ul style="margin:5px 0 0;padding-right:20px;color:#742a2a;font-size:13px;">
+                                ${data.errors.map(e => `<li>${e}</li>`).join('')}
+                            </ul>
+                        </div>
+                    `;
+                }
+                
+                resultContent.innerHTML = html;
+                showAlert(data.message, 'success');
+            } else {
+                resultContent.innerHTML = `<span style="color:#e53e3e;">❌ ${data.message}</span>`;
+                showAlert(data.message, 'error');
+            }
+        } catch(e) {
+            resultContent.innerHTML = '<span style="color:#e53e3e;">❌ حدث خطأ في الاتصال</span>';
+            showAlert('حدث خطأ في الاتصال', 'error');
+        }
+    }
+</script>
+{% endblock %}
