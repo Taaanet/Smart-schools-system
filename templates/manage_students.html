@@ -5,47 +5,148 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>إدارة الطلاب</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
-    <link rel="stylesheet" href="/static/css/style.css">
     <style>
-        .students-container {
-            max-width: 1400px;
-            margin: 0 auto;
-            padding: 20px;
+        /* ====== الأنماط العامة ====== */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
         }
-
-        .header-actions {
+        body {
+            background: #f0f2f5;
+            min-height: 100vh;
+        }
+        /* ====== القائمة العلوية ====== */
+        .navbar {
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            padding: 15px 30px;
             display: flex;
             justify-content: space-between;
             align-items: center;
-            margin-bottom: 20px;
             flex-wrap: wrap;
             gap: 15px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
         }
-
-        .search-box {
+        .navbar .logo {
+            color: white;
+            font-size: 22px;
+            font-weight: bold;
             display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .navbar .nav-links {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 5px;
+        }
+        .navbar .nav-links a {
+            color: white;
+            text-decoration: none;
+            padding: 8px 16px;
+            border-radius: 8px;
+            transition: all 0.3s ease;
+            font-size: 14px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .navbar .nav-links a:hover {
+            background: rgba(255,255,255,0.2);
+            transform: translateY(-2px);
+        }
+        .navbar .nav-links a.active {
+            background: rgba(255,255,255,0.3);
+            font-weight: bold;
+        }
+        .navbar .user-info {
+            color: white;
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+        .navbar .user-info .logout-btn {
+            background: rgba(255,255,255,0.2);
+            color: white;
+            border: none;
+            padding: 6px 15px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 13px;
+            transition: background 0.3s;
+        }
+        .navbar .user-info .logout-btn:hover {
+            background: rgba(255,255,255,0.4);
+        }
+        /* ====== الحاوية الرئيسية ====== */
+        .students-container {
+            max-width: 1400px;
+            margin: 20px auto;
+            padding: 0 20px;
+        }
+        h1 {
+            color: #2d3748;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        /* ====== أدوات التحكم (بحث + إضافة + فلاتر) ====== */
+        .controls {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 15px;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            background: white;
+            padding: 15px 20px;
+            border-radius: 12px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+        }
+        .controls .left-group {
+            display: flex;
+            flex-wrap: wrap;
             gap: 10px;
             align-items: center;
-            flex-wrap: wrap;
         }
-
-        .search-box input {
-            padding: 8px 15px;
+        .controls .left-group input,
+        .controls .left-group select {
+            padding: 8px 12px;
             border: 2px solid #e2e8f0;
             border-radius: 8px;
             font-size: 14px;
-            min-width: 250px;
+            background: white;
+            min-width: 150px;
         }
-
-        .search-box button {
-            padding: 8px 20px;
+        .controls .left-group input:focus,
+        .controls .left-group select:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        .controls .left-group button {
+            padding: 8px 16px;
             background: #667eea;
             color: white;
             border: none;
             border-radius: 8px;
             cursor: pointer;
+            font-size: 14px;
+            transition: background 0.3s;
+            display: flex;
+            align-items: center;
+            gap: 6px;
         }
-
+        .controls .left-group button:hover {
+            background: #5a67d8;
+        }
+        .controls .left-group .btn-clear {
+            background: #a0aec0;
+        }
+        .controls .left-group .btn-clear:hover {
+            background: #718096;
+        }
         .btn-add {
             padding: 10px 25px;
             background: #48bb78;
@@ -57,30 +158,27 @@
             display: inline-flex;
             align-items: center;
             gap: 8px;
+            transition: background 0.3s;
         }
-
         .btn-add:hover {
             background: #38a169;
         }
-
+        /* ====== الجدول ====== */
         .table-wrapper {
             overflow-x: auto;
             background: white;
             border-radius: 12px;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-            padding: 15px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.05);
+            padding: 10px;
         }
-
         table {
             width: 100%;
             border-collapse: collapse;
             font-size: 14px;
         }
-
         thead {
             background: #f7fafc;
         }
-
         th {
             padding: 12px 15px;
             text-align: right;
@@ -88,24 +186,36 @@
             color: #2d3748;
             border-bottom: 2px solid #e2e8f0;
             white-space: nowrap;
+            cursor: pointer;
+            user-select: none;
         }
-
+        th:hover {
+            background: #edf2f7;
+        }
+        th i {
+            margin-right: 4px;
+            font-size: 12px;
+            color: #a0aec0;
+        }
         td {
             padding: 10px 15px;
             border-bottom: 1px solid #e2e8f0;
             color: #4a5568;
         }
-
         tr:hover {
             background: #f7fafc;
         }
-
+        .badge-email {
+            font-size: 12px;
+            color: #667eea;
+            direction: ltr;
+            unicode-bidi: embed;
+        }
         .actions {
             display: flex;
             gap: 8px;
             flex-wrap: wrap;
         }
-
         .btn-edit {
             padding: 5px 12px;
             background: #4299e1;
@@ -115,7 +225,6 @@
             cursor: pointer;
             font-size: 12px;
         }
-
         .btn-delete {
             padding: 5px 12px;
             background: #fc8181;
@@ -125,21 +234,34 @@
             cursor: pointer;
             font-size: 12px;
         }
-
-        .btn-edit:hover {
-            background: #3182ce;
-        }
-
-        .btn-delete:hover {
-            background: #e53e3e;
-        }
-
+        .btn-edit:hover { background: #3182ce; }
+        .btn-delete:hover { background: #e53e3e; }
+        /* ====== الحالات الفارغة والترقيم ====== */
         .empty-state {
             text-align: center;
             padding: 40px;
             color: #a0aec0;
         }
-
+        .pagination {
+            display: flex;
+            justify-content: center;
+            gap: 5px;
+            margin-top: 20px;
+            flex-wrap: wrap;
+        }
+        .pagination button {
+            padding: 5px 12px;
+            border: 1px solid #e2e8f0;
+            background: white;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+        .pagination button.active {
+            background: #667eea;
+            color: white;
+            border-color: #667eea;
+        }
+        /* ====== المودال ====== */
         .modal {
             display: none;
             position: fixed;
@@ -152,7 +274,6 @@
             justify-content: center;
             align-items: center;
         }
-
         .modal-content {
             background: white;
             padding: 30px;
@@ -162,25 +283,21 @@
             max-height: 90vh;
             overflow-y: auto;
         }
-
         .modal-content h2 {
             margin-top: 0;
             color: #2d3748;
             border-bottom: 2px solid #e2e8f0;
             padding-bottom: 15px;
         }
-
         .form-group {
             margin-bottom: 15px;
         }
-
         .form-group label {
             display: block;
             margin-bottom: 5px;
             font-weight: 500;
             color: #4a5568;
         }
-
         .form-group input, .form-group select {
             width: 100%;
             padding: 8px 12px;
@@ -188,14 +305,12 @@
             border-radius: 8px;
             font-size: 14px;
         }
-
         .form-actions {
             display: flex;
             gap: 10px;
             justify-content: flex-end;
             margin-top: 20px;
         }
-
         .btn-save {
             padding: 10px 25px;
             background: #48bb78;
@@ -204,8 +319,7 @@
             border-radius: 8px;
             cursor: pointer;
         }
-
-        .btn-cancel {
+        .btn-cancel-modal {
             padding: 10px 25px;
             background: #a0aec0;
             color: white;
@@ -213,101 +327,123 @@
             border-radius: 8px;
             cursor: pointer;
         }
-
         .alert {
             padding: 15px;
             border-radius: 8px;
             margin-bottom: 20px;
         }
-
         .alert-success {
             background: #c6f6d5;
             color: #22543d;
         }
-
         .alert-error {
             background: #fed7d7;
             color: #742a2a;
         }
-
-        .pagination {
-            display: flex;
-            justify-content: center;
-            gap: 5px;
-            margin-top: 20px;
-        }
-
-        .pagination button {
-            padding: 5px 12px;
-            border: 1px solid #e2e8f0;
-            background: white;
-            border-radius: 5px;
-            cursor: pointer;
-        }
-
-        .pagination button.active {
-            background: #667eea;
-            color: white;
-            border-color: #667eea;
-        }
-
-        .badge-email {
-            font-size: 12px;
-            color: #667eea;
-            direction: ltr;
-            unicode-bidi: embed;
-        }
-
+        /* ====== التوافق مع الشاشات الصغيرة ====== */
         @media (max-width: 768px) {
-            .header-actions {
+            .navbar {
                 flex-direction: column;
                 align-items: stretch;
             }
-            .search-box {
-                flex-direction: column;
+            .navbar .nav-links {
+                justify-content: center;
             }
-            .search-box input {
+            .controls {
+                flex-direction: column;
+                align-items: stretch;
+            }
+            .controls .left-group {
+                flex-direction: column;
+                align-items: stretch;
+            }
+            .controls .left-group input,
+            .controls .left-group select {
                 min-width: unset;
                 width: 100%;
+            }
+            .btn-add {
+                justify-content: center;
             }
         }
     </style>
 </head>
 <body>
+
+    <!-- ====== القائمة العلوية (Navigation Bar) ====== -->
+    <nav class="navbar">
+        <div class="logo">
+            <i class="fas fa-school"></i>
+            <span>نظام حضور الطلاب</span>
+        </div>
+        <div class="nav-links">
+            <a href="/dashboard"><i class="fas fa-home"></i> الرئيسية</a>
+            <a href="/scan"><i class="fas fa-camera"></i> تسجيل الحضور</a>
+            <a href="/general_reports"><i class="fas fa-chart-bar"></i> التقارير</a>
+            <a href="/manage_students" class="active"><i class="fas fa-users"></i> إدارة الطلاب</a>
+            <a href="/backup"><i class="fas fa-database"></i> النسخ الاحتياطي</a>
+            <a href="/users_list"><i class="fas fa-user-cog"></i> المستخدمين</a>
+            <a href="/admin/upload_students"><i class="fas fa-upload"></i> رفع طلاب</a>
+        </div>
+        <div class="user-info">
+            <span><i class="fas fa-user"></i> {{ session.get('username', 'Admin') }}</span>
+            <a href="/logout" class="logout-btn"><i class="fas fa-sign-out-alt"></i> خروج</a>
+        </div>
+    </nav>
+
+    <!-- ====== المحتوى الرئيسي ====== -->
     <div class="students-container">
         <h1><i class="fas fa-users"></i> إدارة الطلاب</h1>
 
-        <!-- عرض رسائل التنبيه -->
+        <!-- تنبيهات -->
         <div id="alert-container"></div>
 
-        <!-- رأس الصفحة -->
-        <div class="header-actions">
-            <div class="search-box">
-                <input type="text" id="searchInput" placeholder="🔍 بحث بالاسم أو رقم الطالب..." onkeyup="searchStudents()">
-                <button onclick="searchStudents()"><i class="fas fa-search"></i> بحث</button>
-                <button onclick="clearSearch()" class="btn-cancel" style="padding: 8px 15px;"><i class="fas fa-times"></i> مسح</button>
+        <!-- أدوات التحكم -->
+        <div class="controls">
+            <div class="left-group">
+                <!-- فلتر الصف -->
+                <select id="filterGrade">
+                    <option value="">جميع الصفوف</option>
+                    <option value="الأول الثانوي">الأول الثانوي</option>
+                    <option value="الثاني الثانوي">الثاني الثانوي</option>
+                    <option value="الثالث الثانوي">الثالث الثانوي</option>
+                </select>
+                <!-- فلتر الفصل -->
+                <select id="filterClass">
+                    <option value="">جميع الشعب</option>
+                    <option value="1">1</option>
+                    <option value="2">2</option>
+                    <option value="3">3</option>
+                    <option value="4">4</option>
+                    <option value="5">5</option>
+                    <option value="6">6</option>
+                </select>
+                <!-- مربع البحث -->
+                <input type="text" id="searchInput" placeholder="🔍 بحث بالاسم أو رقم الطالب...">
+                <button onclick="applyFilters()"><i class="fas fa-search"></i> بحث</button>
+                <button onclick="clearFilters()" class="btn-clear"><i class="fas fa-times"></i> مسح</button>
             </div>
             <button class="btn-add" onclick="openAddModal()">
                 <i class="fas fa-plus"></i> إضافة طالب جديد
             </button>
         </div>
 
-        <!-- جدول الطلاب -->
+        <!-- الجدول -->
         <div class="table-wrapper">
             <table>
                 <thead>
                     <tr>
-                        <th>رقم الطالب</th>
-                        <th>اسم الطالب</th>
-                        <th>الصف</th>
-                        <th>الشعبة</th>
+                        <th onclick="sortTable('student_id')">رقم الطالب <i class="fas fa-sort"></i></th>
+                        <th onclick="sortTable('name')">اسم الطالب <i class="fas fa-sort"></i></th>
+                        <th onclick="sortTable('grade')">الصف <i class="fas fa-sort"></i></th>
+                        <th onclick="sortTable('class')">الشعبة <i class="fas fa-sort"></i></th>
                         <th>📧 البريد الإلكتروني</th>
                         <th>📧 بريد ولي الأمر</th>
                         <th>الإجراءات</th>
                     </tr>
                 </thead>
                 <tbody id="studentsTableBody">
-                    <!-- سيتم ملء البيانات بواسطة JavaScript -->
+                    <!-- يتم الملء بواسطة JavaScript -->
                 </tbody>
             </table>
             <div id="emptyState" class="empty-state" style="display: none;">
@@ -316,11 +452,11 @@
             </div>
         </div>
 
-        <!-- Pagination -->
+        <!-- أزرار الترقيم -->
         <div class="pagination" id="paginationContainer"></div>
     </div>
 
-    <!-- Modal إضافة/تعديل طالب -->
+    <!-- ====== مودال إضافة / تعديل طالب ====== -->
     <div id="studentModal" class="modal">
         <div class="modal-content">
             <h2 id="modalTitle">إضافة طالب جديد</h2>
@@ -331,12 +467,10 @@
                     <label for="studentId">رقم الطالب *</label>
                     <input type="text" id="studentId" required>
                 </div>
-                
                 <div class="form-group">
                     <label for="studentName">اسم الطالب *</label>
                     <input type="text" id="studentName" required>
                 </div>
-                
                 <div class="form-group">
                     <label for="studentGrade">الصف</label>
                     <select id="studentGrade">
@@ -345,7 +479,6 @@
                         <option value="الثالث الثانوي">الثالث الثانوي</option>
                     </select>
                 </div>
-                
                 <div class="form-group">
                     <label for="studentClass">الشعبة</label>
                     <select id="studentClass">
@@ -357,55 +490,53 @@
                         <option value="6">6</option>
                     </select>
                 </div>
-                
                 <div class="form-group">
                     <label for="studentPhone">هاتف الطالب (اختياري)</label>
                     <input type="text" id="studentPhone" placeholder="05xxxxxxxx">
                 </div>
-                
                 <div class="form-group">
                     <label for="parentPhone">هاتف ولي الأمر (اختياري)</label>
                     <input type="text" id="parentPhone" placeholder="05xxxxxxxx">
                 </div>
-                
-                <!-- ✅ حقل البريد الإلكتروني للطالب -->
                 <div class="form-group">
                     <label for="studentEmail">📧 البريد الإلكتروني للطالب (اختياري)</label>
                     <input type="email" id="studentEmail" placeholder="student@example.com">
                 </div>
-                
-                <!-- ✅ حقل بريد ولي الأمر -->
                 <div class="form-group">
                     <label for="parentEmail">📧 بريد ولي الأمر (اختياري)</label>
                     <input type="email" id="parentEmail" placeholder="parent@example.com">
                 </div>
                 
                 <div class="form-actions">
-                    <button type="button" class="btn-cancel" onclick="closeModal()">إلغاء</button>
+                    <button type="button" class="btn-cancel-modal" onclick="closeModal()">إلغاء</button>
                     <button type="submit" class="btn-save" id="saveBtn">حفظ</button>
                 </div>
             </form>
         </div>
     </div>
 
+    <!-- ====== جافا سكريبت ====== -->
     <script>
-        // ============================================================
-        //  متغيرات عامة
-        // ============================================================
+        // ==========================================================
+        //  المتغيرات العامة
+        // ==========================================================
         let allStudents = [];
+        let filteredStudents = [];
         let currentPage = 1;
         const rowsPerPage = 20;
+        let sortField = '';
+        let sortAsc = true;
 
-        // ============================================================
-        //  جلب بيانات الطلاب من الخادم
-        // ============================================================
+        // ==========================================================
+        //  جلب بيانات الطلاب
+        // ==========================================================
         async function loadStudents() {
             try {
                 const response = await fetch('/api/students_list');
                 const data = await response.json();
                 if (data.success) {
                     allStudents = data.data;
-                    renderTable();
+                    applyFilters();
                 } else {
                     showAlert('فشل تحميل البيانات', 'error');
                 }
@@ -415,21 +546,68 @@
             }
         }
 
-        // ============================================================
-        //  عرض الجدول مع التصفية والترقيم
-        // ============================================================
-        function renderTable() {
+        // ==========================================================
+        //  التصفية والترتيب
+        // ==========================================================
+        function applyFilters() {
+            const gradeFilter = document.getElementById('filterGrade').value;
+            const classFilter = document.getElementById('filterClass').value;
             const searchTerm = document.getElementById('searchInput').value.toLowerCase();
-            const filtered = allStudents.filter(s => {
+
+            filteredStudents = allStudents.filter(s => {
                 const id = String(s.student_id || '').toLowerCase();
                 const name = String(s.name || '').toLowerCase();
-                return id.includes(searchTerm) || name.includes(searchTerm);
+                const grade = String(s.grade || '');
+                const cls = String(s.class || '');
+
+                const matchGrade = gradeFilter ? grade === gradeFilter : true;
+                const matchClass = classFilter ? cls === classFilter : true;
+                const matchSearch = id.includes(searchTerm) || name.includes(searchTerm);
+                return matchGrade && matchClass && matchSearch;
             });
 
-            const totalPages = Math.ceil(filtered.length / rowsPerPage);
+            // ترتيب
+            if (sortField) {
+                filteredStudents.sort((a, b) => {
+                    let va = a[sortField] || '';
+                    let vb = b[sortField] || '';
+                    if (typeof va === 'string') va = va.toLowerCase();
+                    if (typeof vb === 'string') vb = vb.toLowerCase();
+                    if (va < vb) return sortAsc ? -1 : 1;
+                    if (va > vb) return sortAsc ? 1 : -1;
+                    return 0;
+                });
+            }
+
+            currentPage = 1;
+            renderTable();
+        }
+
+        function clearFilters() {
+            document.getElementById('filterGrade').value = '';
+            document.getElementById('filterClass').value = '';
+            document.getElementById('searchInput').value = '';
+            applyFilters();
+        }
+
+        function sortTable(field) {
+            if (sortField === field) {
+                sortAsc = !sortAsc;
+            } else {
+                sortField = field;
+                sortAsc = true;
+            }
+            applyFilters();
+        }
+
+        // ==========================================================
+        //  عرض الجدول
+        // ==========================================================
+        function renderTable() {
+            const totalPages = Math.ceil(filteredStudents.length / rowsPerPage);
             if (currentPage > totalPages) currentPage = 1;
             const start = (currentPage - 1) * rowsPerPage;
-            const pageData = filtered.slice(start, start + rowsPerPage);
+            const pageData = filteredStudents.slice(start, start + rowsPerPage);
 
             const tbody = document.getElementById('studentsTableBody');
             const empty = document.getElementById('emptyState');
@@ -464,9 +642,6 @@
             renderPagination(totalPages);
         }
 
-        // ============================================================
-        //  أزرار الترقيم (Pagination)
-        // ============================================================
         function renderPagination(totalPages) {
             const container = document.getElementById('paginationContainer');
             if (totalPages <= 1) {
@@ -491,23 +666,9 @@
             renderTable();
         }
 
-        // ============================================================
-        //  البحث
-        // ============================================================
-        function searchStudents() {
-            currentPage = 1;
-            renderTable();
-        }
-
-        function clearSearch() {
-            document.getElementById('searchInput').value = '';
-            currentPage = 1;
-            renderTable();
-        }
-
-        // ============================================================
-        //  فتح وإغلاق المودال
-        // ============================================================
+        // ==========================================================
+        //  المودال (إضافة / تعديل)
+        // ==========================================================
         function openAddModal() {
             document.getElementById('modalTitle').textContent = 'إضافة طالب جديد';
             document.getElementById('studentForm').reset();
@@ -542,9 +703,9 @@
             document.getElementById('studentModal').style.display = 'none';
         }
 
-        // ============================================================
+        // ==========================================================
         //  حفظ الطالب (إضافة أو تعديل)
-        // ============================================================
+        // ==========================================================
         document.getElementById('studentForm').addEventListener('submit', async (e) => {
             e.preventDefault();
             const editId = document.getElementById('editId').value;
@@ -586,9 +747,9 @@
             }
         });
 
-        // ============================================================
+        // ==========================================================
         //  حذف طالب
-        // ============================================================
+        // ==========================================================
         async function deleteStudent(studentId) {
             if (!confirm('هل أنت متأكد من حذف هذا الطالب؟')) return;
             try {
@@ -606,9 +767,9 @@
             }
         }
 
-        // ============================================================
-        //  عرض التنبيهات
-        // ============================================================
+        // ==========================================================
+        //  التنبيهات
+        // ==========================================================
         function showAlert(message, type) {
             const container = document.getElementById('alert-container');
             const className = type === 'success' ? 'alert-success' : 'alert-error';
@@ -616,10 +777,11 @@
             setTimeout(() => { container.innerHTML = ''; }, 5000);
         }
 
-        // ============================================================
+        // ==========================================================
         //  تحميل البيانات عند فتح الصفحة
-        // ============================================================
+        // ==========================================================
         document.addEventListener('DOMContentLoaded', loadStudents);
     </script>
+
 </body>
 </html>
