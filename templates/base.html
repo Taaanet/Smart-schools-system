@@ -392,14 +392,13 @@
         <a href="/class_reports" class="nav-btn nav-btn-info"><i class="fas fa-users"></i> {{ t('class_reports') }}</a>
         <a href="/manage_students" class="nav-btn nav-btn-info"><i class="fas fa-user-graduate"></i> {{ t('manage_students') }}</a>
 
-        <!-- ✅ الأزرار الإدارية المحذوفة نهائياً (backup, users, licenses, upload_students) -->
-
-        <!-- ✅ الأزرار المحدثة للنسخة التجارية (للمدير والمدير العام) -->
+        <!-- ✅ الأزرار الإدارية (للمدير والمدير العام) -->
         {% if session.get('role') == 'admin' or session.get('role') == 'super_admin' %}
             <a href="/send_notifications" class="nav-btn nav-btn-info"><i class="fas fa-envelope"></i> 📧 إرسال إشعارات</a>
+            <a href="/admin/upload_students" class="nav-btn nav-btn-warning"><i class="fas fa-file-excel"></i> 📤 رفع طلاب</a>
         {% endif %}
 
-        <!-- ✅ أزرار المدير العام فقط (النسخة التجارية النهائية) -->
+        <!-- ✅ أزرار المدير العام فقط -->
         {% if session.get('role') == 'super_admin' %}
             <hr style="border: none; border-top: 2px dashed #e2e8f0; margin: 5px 0; width: 100%;">
             <a href="/admin/dashboard" class="nav-btn nav-btn-danger"><i class="fas fa-chart-pie"></i> 📊 لوحة التحكم</a>
