@@ -1018,6 +1018,7 @@ def super_admin_required(f):
             return redirect(url_for('home'))
         return f(*args, **kwargs)
     return decorated_function
+
 # ============== إعداد سياسات RLS تلقائياً ==============
 def setup_rls_policies():
     try:
@@ -1124,18 +1125,285 @@ def activate_device_page():
 
     return render_template('activate_device.html')
 
+# ============== الصفحات الرئيسية ==============
+@app.route('/dashboard')
+@license_required
+def home():
+    return render_template('index.html')
+
+@app.route("/scan")
+@license_required
+def scan():
+    return render_template("scan.html")
+
+@app.route("/general_reports")
+@license_required
+def general_reports():
+    return render_template("general_reports.html")
+
+@app.route("/monthly_reports")
+@license_required
+def monthly_reports_page():
+    return render_template("monthly_reports.html")
+
+@app.route("/charts")
+@license_required
+def charts_page():
+    return render_template("charts.html")
+
+@app.route("/class_reports")
+@license_required
+def class_reports():
+    return render_template("class_reports.html")
+
+@app.route("/manage_students")
+@license_required
+def manage_students():
+    return render_template("manage_students.html")
+
+# ============== مسارات المدير العام ==============
+
+@app.route('/admin/dashboard')
+@login_required
+@super_admin_required
+def admin_dashboard():
+    """لوحة تحكم المدير العام - إدارة المدارس والمستخدمين"""
+    schools = get_all_schools()
+    total_schools = len(schools)
+    active_schools = len([s for s in schools if s.get('is_active')]) if schools else 0
+    
+    school_stats = []
+    for school in schools[:20]:
+        stats = get_school_stats(school['id'])
+        if stats:
+            school_stats.append({
+                'id': school['id'],
+                'name': school['name'],
+                'subdomain': school['subdomain'],
+                'license_expiry': school.get('license_expiry'),
+                'is_active': school.get('is_active', True),
+                'plan': school.get('plan', 'basic'),
+                'students': stats.get('total_students', 0),
+                'attendance': stats.get('total_attendance', 0)
+            })
+    
+    all_students = get_live_students()
+    users = load_users()
+    
+    # تجهيز بيانات المستخدمين للعرض في التبويب
+    users_data = []
+    for username, data in users.items():
+        role = data.get('role', 'user')
+        license_status = {
+            'has_license': data.get('license_expiry') is not None,
+            'days_remaining': get_user_license_days_remaining(username),
+            'license_days': data.get('license_days')
+        }
+        users_data.append({
+            'username': username,
+            'role': role,
+            'license_status': license_status
+        })
+    
+    return render_template('admin_dashboard.html', 
+                         schools=school_stats,
+                         total_schools=total_schools,
+                         active_schools=active_schools,
+                         total_students_all=len(all_students),
+                         total_users=len(users),
+                         users=users_data)
+
+@app.route('/admin/settings')
+@login_required
+@super_admin_required
+def admin_settings():
+    """صفحة الإعدادات المتقدمة (المدرسة، التراخيص، النسخ الاحتياطي، رفع الطلاب)"""
+    school = get_school_from_domain(request.host)
+    
+    if not school:
+        try:
+            subdomain = request.host.split('.')[0]
+            new_school = {
+                'name': f'مدرسة {subdomain}',
+                'subdomain': subdomain,
+                'plan': 'premium',
+                'is_active': True,
+                'license_expiry': (datetime.now() + timedelta(days=365)).isoformat()
+            }
+            result = supabase.table("schools").insert(new_school).execute()
+            school = result.data[0] if result.data else None
+        except Exception as e:
+            pass
+    
+    email_configured = bool(app.config['MAIL_PASSWORD'])
+    
+    return render_template('admin_settings.html', 
+                         school=school,
+                         email_configured=email_configured)
+
+@app.route('/admin/schools')
+@login_required
+@super_admin_required
+def admin_schools():
+    """صفحة إدارة المدارس"""
+    schools = get_all_schools()
+    return render_template('admin_schools.html', schools=schools)
+
+@app.route('/admin/subscriptions')
+@login_required
+@super_admin_required
+def admin_subscriptions():
+    """صفحة إدارة اشتراكات المدارس"""
+    schools = get_all_schools()
+    return render_template('admin_subscriptions.html', schools=schools)
+
+@app.route('/school/settings')
+@login_required
+@super_admin_required
+def school_settings():
+    """صفحة إعدادات المدرسة الحالية"""
+    print(f"🔍 Host: {request.host}")
+    
+    school = get_school_from_domain(request.host)
+    
+    if not school:
+        try:
+            subdomain = request.host.split('.')[0]
+            print(f"⚠️ لم يتم العثور على مدرسة، جاري إنشاء مدرسة افتراضية للنطاق: {subdomain}")
+            
+            new_school = {
+                'name': f'مدرسة {subdomain}',
+                'subdomain': subdomain,
+                'plan': 'premium',
+                'is_active': True,
+                'license_expiry': (datetime.now() + timedelta(days=365)).isoformat()
+            }
+            
+            result = supabase.table("schools").insert(new_school).execute()
+            school = result.data[0] if result.data else None
+            flash('تم إنشاء المدرسة تلقائياً', 'success')
+        except Exception as e:
+            print(f"❌ خطأ في إنشاء المدرسة: {e}")
+            flash('حدث خطأ في إنشاء المدرسة', 'error')
+            return redirect(url_for('admin_dashboard'))
+    
+    print(f"🔍 School found: {school}")
+    
+    if not school:
+        flash('المدرسة غير موجودة', 'error')
+        return redirect(url_for('admin_dashboard'))
+    
+    twilio_configured = bool(os.environ.get('TWILIO_ACCOUNT_SID') and os.environ.get('TWILIO_AUTH_TOKEN'))
+    
+    return render_template('school_settings.html', 
+                         school=school,
+                         twilio_configured=twilio_configured)
+
+# ============== صفحات إدارية أخرى (للتوافق مع الروابط القديمة) ==============
 @app.route('/admin/licenses')
 @login_required
 def admin_licenses_page():
-    # ✅ التعديل: السماح لكل من admin و super_admin
     if session.get('role') not in ['admin', 'super_admin']:
         return redirect(url_for('home'))
     try:
-        result = supabase.table("device_licenses").select("*").order("created_at", desc=True).execute()
-        licenses = result.data
+        if request.args.get('api') == '1':
+            result = supabase.table("device_licenses").select("*").order("created_at", desc=True).execute()
+            return jsonify({"success": True, "licenses": result.data})
+        return render_template('admin_licenses.html', licenses=[])
     except Exception as e:
-        licenses = []
-    return render_template('admin_licenses.html', licenses=licenses)
+        if request.args.get('api') == '1':
+            return jsonify({"success": False, "licenses": []})
+        return render_template('admin_licenses.html', licenses=[])
+
+@app.route('/backup')
+@login_required
+def backup_page():
+    if session.get('role') not in ['admin', 'super_admin']:
+        return redirect(url_for('home'))
+    return render_template("backup.html")
+
+@app.route('/users_list')
+@login_required
+def users_list():
+    try:
+        if session.get('role') not in ['admin', 'super_admin']:
+            return redirect(url_for('home'))
+
+        users = load_users()
+        users_data = []
+
+        for username, data in users.items():
+            role = data.get('role', 'user')
+            license_days = data.get('license_days')
+            license_expiry = data.get('license_expiry')
+            days_remaining = get_user_license_days_remaining(username)
+            created_at = data.get('created_at', '')
+
+            users_data.append({
+                'username': username,
+                'role': role,
+                'license_days': license_days,
+                'license_expiry': license_expiry,
+                'days_remaining': days_remaining,
+                'created_at': created_at[:10] if created_at else ''
+            })
+
+        return render_template('users_list.html', users=users_data)
+
+    except Exception as e:
+        print(f"❌ خطأ في صفحة المستخدمين: {e}")
+        import traceback
+        traceback.print_exc()
+        return f"<h1>خطأ في النظام</h1><p>الرجاء المحاولة لاحقاً</p><p>التفاصيل: {str(e)}</p>", 500
+
+@app.route('/send_notifications')
+@login_required
+def send_notifications_page():
+    """صفحة إرسال الإشعارات"""
+    if session.get('role') not in ['admin', 'super_admin']:
+        return redirect(url_for('home'))
+    today = datetime.now().strftime('%Y-%m-%d')
+    return render_template('send_notifications.html', today=today)
+
+# ============== مسارات API ==============
+
+@app.route("/api/users")
+@login_required
+def api_users():
+    """API لجلب بيانات المستخدمين مع حالة الترخيص"""
+    if session.get('role') not in ['admin', 'super_admin']:
+        return jsonify({"success": False, "message": "غير مصرح"}), 403
+    
+    users = load_users()
+    users_data = []
+    
+    for username, data in users.items():
+        role = data.get('role', 'user')
+        
+        if role == 'super_admin':
+            license_status = {
+                'has_license': True,
+                'days_remaining': -1,
+                'expiry_date': None,
+                'license_days': None,
+                'created_at': data.get('created_at')
+            }
+        else:
+            license_status = {
+                'has_license': data.get('license_expiry') is not None,
+                'days_remaining': get_user_license_days_remaining(username),
+                'expiry_date': data.get('license_expiry'),
+                'license_days': data.get('license_days'),
+                'created_at': data.get('created_at')
+            }
+        
+        users_data.append({
+            'username': username,
+            'role': role,
+            'license_status': license_status
+        })
+    
+    return jsonify({"success": True, "users": users_data})
 
 @app.route('/api/admin/create_license', methods=['POST'])
 @login_required
@@ -1193,1547 +1461,9 @@ def revoke_license(license_id):
         return jsonify({"success": False, "message": "غير مصرح"}), 403
     try:
         supabase.table("device_licenses").delete().eq("id", license_id).execute()
-        return redirect(url_for('admin_licenses_page'))
-    except Exception as e:
-        return f"حدث خطأ أثناء إلغاء الترخيص: {e}", 500
-
-@app.route('/api/admin/check_license')
-@login_required
-def check_license_api():
-    if session.get('role') not in ['admin', 'super_admin']:
-        return jsonify({"success": False, "message": "غير مصرح"}), 403
-    is_licensed = check_device_license()
-    return jsonify({"success": True, "is_licensed": is_licensed, "hardware_id": get_hardware_id()})
-
-@app.route('/api/admin/device_status')
-@login_required
-def device_status_api():
-    """API للتحقق من حالة جهاز محدد (للمدير فقط)"""
-    if session.get('role') not in ['admin', 'super_admin']:
-        return jsonify({"success": False, "message": "غير مصرح"}), 403
-    
-    hardware_id = request.args.get('hardware_id', '')
-    
-    try:
-        result = supabase.table("device_licenses").select("*").eq("hardware_id", hardware_id).execute()
-        
-        if result.data:
-            license_data = result.data[0]
-            expiry_date = datetime.fromisoformat(license_data['expires_at'])
-            is_valid = expiry_date > datetime.now()
-            
-            return jsonify({
-                "success": True,
-                "is_licensed": is_valid,
-                "expires_at": license_data['expires_at'],
-                "days_remaining": (expiry_date - datetime.now()).days if is_valid else 0,
-                "hardware_id": hardware_id
-            })
-        else:
-            return jsonify({
-                "success": True,
-                "is_licensed": False,
-                "message": "لا يوجد ترخيص لهذا الجهاز"
-            })
-    except Exception as e:
-        return jsonify({"success": False, "error": str(e)})
-
-# ============== إدارة رفع الطلاب عبر Excel ==============
-ALLOWED_EXTENSIONS = {'xlsx', 'xls', 'csv'}
-
-def allowed_file(filename):
-    """التحقق من امتداد الملف المسموح"""
-    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
-
-def process_excel_file(file_content, filename):
-    """معالجة ملف Excel واستخراج بيانات الطلاب"""
-    try:
-        if filename.endswith('.csv'):
-            df = pd.read_csv(io.BytesIO(file_content), encoding='utf-8-sig')
-        else:
-            df = pd.read_excel(io.BytesIO(file_content))
-        
-        df.columns = df.columns.str.lower().str.strip()
-        
-        id_column = None
-        name_column = None
-        grade_column = None
-        class_column = None
-        phone_column = None
-        parent_phone_column = None
-        
-        id_names = ['student_id', 'id', 'رقم الطالب', 'studentid', 'الرقم', 'الرقم الطلابي']
-        name_names = ['name', 'student_name', 'اسم الطالب', 'studentname', 'الاسم', 'student name']
-        grade_names = ['grade', 'الصف', 'class_grade', 'المرحلة', 'الصف الدراسي']
-        class_names = ['class', 'الشعبة', 'class_name', 'الفصل', 'division', 'شعبة']
-        phone_names = ['phone', 'student_phone', 'هاتف الطالب', 'mobile', 'جوال']
-        parent_phone_names = ['parent_phone', 'guardian_phone', 'هاتف ولي الأمر', 'parent_mobile', 'ولي الأمر']
-        
-        for col in df.columns:
-            if any(name in col for name in id_names):
-                id_column = col
-            if any(name in col for name in name_names):
-                name_column = col
-            if any(name in col for name in grade_names):
-                grade_column = col
-            if any(name in col for name in class_names):
-                class_column = col
-            if any(name in col for name in phone_names):
-                phone_column = col
-            if any(name in col for name in parent_phone_names):
-                parent_phone_column = col
-        
-        if id_column is None or name_column is None:
-            return {
-                'success': False,
-                'error': 'لم يتم العثور على الأعمدة المطلوبة (رقم الطالب واسم الطالب)',
-                'found_columns': list(df.columns)
-            }
-        
-        students = []
-        errors = []
-        success_count = 0
-        
-        for index, row in df.iterrows():
-            student_id = str(row.get(id_column, '')).strip()
-            name = str(row.get(name_column, '')).strip()
-            
-            if not student_id or student_id == 'nan' or not name or name == 'nan':
-                continue
-            
-            cleaned_id = clean_student_id(student_id)
-            
-            if not cleaned_id or not name:
-                errors.append(f"الصف {index + 2}: بيانات غير صالحة (الرقم: {student_id}, الاسم: {name})")
-                continue
-            
-            student_data = {
-                'student_id': cleaned_id,
-                'name': name,
-                'grade': str(row.get(grade_column, '')).strip() if grade_column else 'الأول الثانوي',
-                'class': str(row.get(class_column, '')).strip() if class_column else '1',
-                'phone': str(row.get(phone_column, '')).strip() if phone_column else '',
-                'parent_phone': str(row.get(parent_phone_column, '')).strip() if parent_phone_column else ''
-            }
-            
-            for key, value in student_data.items():
-                if value == 'nan' or value == 'None' or value == '':
-                    student_data[key] = ''
-            
-            students.append(student_data)
-            success_count += 1
-        
-        return {
-            'success': True,
-            'students': students,
-            'success_count': success_count,
-            'errors': errors,
-            'total_rows': len(df),
-            'id_column': id_column,
-            'name_column': name_column,
-            'grade_column': grade_column,
-            'class_column': class_column
-        }
-        
-    except Exception as e:
-        return {
-            'success': False,
-            'error': f'خطأ في معالجة الملف: {str(e)}'
-        }
-
-@app.route('/admin/upload_students', methods=['GET', 'POST'])
-@login_required
-def admin_upload_students():
-    # ✅ التعديل: السماح لكل من admin و super_admin
-    if session.get('role') not in ['admin', 'super_admin']:
-        return redirect(url_for('home'))
-    
-    if request.method == 'POST':
-        if 'file' not in request.files:
-            return render_template('admin_upload.html', error="الرجاء اختيار ملف للرفع")
-        
-        file = request.files['file']
-        
-        if file.filename == '':
-            return render_template('admin_upload.html', error="الرجاء اختيار ملف للرفع")
-        
-        if not allowed_file(file.filename):
-            return render_template('admin_upload.html', error="نوع الملف غير مسموح. يرجى رفع ملف Excel (.xlsx, .xls) أو CSV")
-        
-        try:
-            file_content = file.read()
-            result = process_excel_file(file_content, file.filename)
-            
-            if not result['success']:
-                return render_template('admin_upload.html', error=result.get('error', 'حدث خطأ في معالجة الملف'), found_columns=result.get('found_columns'))
-            
-            if request.form.get('confirm') != 'yes':
-                old_students = get_live_students()
-                return render_template('admin_upload.html', 
-                                     preview=result['students'][:10],
-                                     total_students=result['success_count'],
-                                     old_count=len(old_students),
-                                     errors=result['errors'],
-                                     filename=file.filename,
-                                     confirm_required=True)
-            
-            supabase.table("students").delete().neq("student_id", "").execute()
-            
-            students_list = result['students']
-            batch_size = 50
-            batches = [students_list[i:i+batch_size] for i in range(0, len(students_list), batch_size)]
-            
-            for batch in batches:
-                supabase.table("students").insert(batch).execute()
-            
-            try:
-                supabase.table("security_logs").insert({
-                    "hardware_id": get_hardware_id(),
-                    "ip_address": request.remote_addr,
-                    "action": "upload_students",
-                    "details": f"تم رفع {len(students_list)} طالب من ملف {file.filename}"
-                }).execute()
-            except:
-                pass
-            
-            return render_template('admin_upload.html', 
-                                 success=True,
-                                 total_uploaded=len(students_list),
-                                 filename=file.filename)
-            
-        except Exception as e:
-            return render_template('admin_upload.html', error=f"حدث خطأ: {str(e)}")
-    
-    return render_template('admin_upload.html')
-
-@app.route('/api/admin/export_current_students')
-@login_required
-def export_current_students():
-    if session.get('role') not in ['admin', 'super_admin']:
-        return jsonify({"success": False, "message": "غير مصرح"}), 403
-    
-    try:
-        students = get_live_students()
-        
-        if not students:
-            return jsonify({"success": False, "message": "لا توجد بيانات للتصدير"}), 404
-        
-        df = pd.DataFrame(students)
-        columns_order = ['student_id', 'name', 'grade', 'class', 'phone', 'parent_phone']
-        existing_columns = [col for col in columns_order if col in df.columns]
-        df = df[existing_columns]
-        
-        column_names_ar = {
-            'student_id': 'رقم الطالب',
-            'name': 'اسم الطالب',
-            'grade': 'الصف',
-            'class': 'الشعبة',
-            'phone': 'هاتف الطالب',
-            'parent_phone': 'هاتف ولي الأمر'
-        }
-        
-        rename_dict = {col: column_names_ar[col] for col in existing_columns if col in column_names_ar}
-        df = df.rename(columns=rename_dict)
-        
-        output = io.BytesIO()
-        
-        with pd.ExcelWriter(output, engine='openpyxl') as writer:
-            df.to_excel(writer, index=False, sheet_name='Students')
-        
-        output.seek(0)
-        
-        filename = f'students_export_{datetime.now().strftime("%Y%m%d_%H%M%S")}.xlsx'
-        
-        return send_file(
-            output,
-            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-            as_attachment=True,
-            download_name=filename
-        )
-        
-    except Exception as e:
-        print(f"❌ خطأ في تصدير البيانات: {e}")
-        import traceback
-        traceback.print_exc()
-        return jsonify({"success": False, "error": str(e)}), 500
-
-# ============== باقي المسارات (API التقارير، إلخ) ==============
-# ============== صفحات فحص وتنظيف البيانات ==============
-@app.route('/debug_student_ids')
-@login_required
-def debug_student_ids():
-    if session.get('role') not in ['admin', 'super_admin']:
-        return jsonify({"error": "غير مصرح"}), 403
-    
-    students = get_live_students()
-    results = []
-    
-    for student in students[:50]:
-        original_id = student.get('student_id', '')
-        raw_repr = repr(original_id)
-        length = len(original_id)
-        cleaned = clean_student_id(original_id)
-        
-        results.append({
-            'name': student.get('name'),
-            'original': original_id,
-            'raw_repr': raw_repr,
-            'length': length,
-            'cleaned': cleaned,
-            'is_different': original_id != cleaned
-        })
-    
-    html = """
-    <!DOCTYPE html>
-    <html dir="rtl" lang="ar">
-    <head>
-        <meta charset="UTF-8">
-        <title>فحص أرقام الطلاب</title>
-        <style>
-            body { font-family: Arial, sans-serif; margin: 20px; background: #f5f5f5; }
-            h1 { color: #333; text-align: center; }
-            .summary { background: white; padding: 15px; border-radius: 10px; margin-bottom: 20px; }
-            table { width: 100%; border-collapse: collapse; background: white; margin-top: 20px; }
-            th, td { border: 1px solid #ddd; padding: 12px; text-align: center; }
-            th { background: #667eea; color: white; }
-            .different { background: #ffeb3b !important; }
-            .badge-clean { background: #4caf50; color: white; padding: 3px 8px; border-radius: 5px; }
-            .badge-dirty { background: #ff9800; color: white; padding: 3px 8px; border-radius: 5px; }
-            button { background: #667eea; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; margin: 10px; }
-        </style>
-    </head>
-    <body>
-        <h1>🔍 فحص أرقام الطلاب</h1>
-        <div class="summary">
-            <p><strong>📊 ملخص:</strong></p>
-            <p>عدد الطلاب المعروضين: """ + str(len(results)) + """</p>
-            <p>عدد الأرقام غير النظيفة: """ + str(sum(1 for r in results if r['is_different'])) + """</p>
-            <button onclick="window.location.href='/admin/clean_student_ids'">🧹 تنظيف البيانات الآن</button>
-            <button onclick="window.location.href='/'">🏠 العودة إلى الرئيسية</button>
-        </div>
-        <table>
-            <thead>
-                <tr><th>اسم الطالب</th><th>الرقم الأصلي</th><th>التمثيل الخام (raw)</th><th>الطول</th><th>بعد التنظيف</th><th>الحالة</th></tr>
-            </thead>
-            <tbody>
-    """
-    
-    for r in results:
-        row_class = 'class="different"' if r['is_different'] else ''
-        badge = '<span class="badge-dirty">🟠 غير نظيف</span>' if r['is_different'] else '<span class="badge-clean">✅ نظيف</span>'
-        html += f"""
-        <tr {row_class}>
-            <td>{r['name']}</td>
-            <td>{r['original']}</td>
-            <td><code style="font-size:11px">{r['raw_repr']}</code></td>
-            <td>{r['length']}</td>
-            <td>{r['cleaned']}</td>
-            <td>{badge}</td>
-        </tr>
-        """
-    
-    html += """
-            </tbody>
-        </table>
-        <p style="text-align:center; margin-top:20px;">💡 <strong>ملاحظة:</strong> الأرقام باللون الأصفر تحتاج إلى تنظيف</p>
-    </body>
-    </html>
-    """
-    
-    return html
-
-@app.route('/admin/clean_student_ids')
-@login_required
-def admin_clean_student_ids():
-    if session.get('role') not in ['admin', 'super_admin']:
-        return jsonify({"error": "غير مصرح"}), 403
-    
-    students = get_live_students()
-    cleaned_count = 0
-    changes = []
-    
-    for student in students:
-        old_id = student.get('student_id', '')
-        new_id = clean_student_id(old_id)
-        
-        if old_id != new_id:
-            try:
-                supabase.table("students").update({
-                    "student_id": new_id
-                }).eq("student_id", old_id).execute()
-                cleaned_count += 1
-                changes.append({
-                    'name': student.get('name'),
-                    'old': repr(old_id),
-                    'new': new_id
-                })
-                print(f"✅ تم تنظيف: {repr(old_id)} -> {new_id}")
-            except Exception as e:
-                print(f"❌ خطأ في تنظيف {student.get('name')}: {e}")
-    
-    html = f"""
-    <!DOCTYPE html>
-    <html dir="rtl" lang="ar">
-    <head>
-        <meta charset="UTF-8">
-        <title>تنظيف أرقام الطلاب</title>
-        <style>
-            body {{ font-family: Arial, sans-serif; margin: 20px; background: #f5f5f5; text-align: center; }}
-            .success {{ background: #4caf50; color: white; padding: 20px; border-radius: 10px; margin: 20px; }}
-            table {{ width: 80%; margin: 20px auto; border-collapse: collapse; background: white; }}
-            th, td {{ border: 1px solid #ddd; padding: 10px; }}
-            th {{ background: #667eea; color: white; }}
-            button {{ background: #667eea; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; margin: 10px; }}
-        </style>
-    </head>
-    <body>
-        <h1>🧹 تنظيف أرقام الطلاب</h1>
-        <div class="success">
-            <h2>✅ اكتمل التنظيف!</h2>
-            <p>عدد الطلاب الذين تم تنظيفهم: <strong>{cleaned_count}</strong></p>
-        </div>
-    """
-    
-    if changes:
-        html += """
-        <h3>📋 التغييرات التي تمت:</h3>
-        <table>
-            <thead><tr><th>اسم الطالب</th><th>الرقم القديم (raw)</th><th>الرقم الجديد</th></tr></thead>
-            <tbody>
-        """
-        for change in changes[:50]:
-            html += f"<tr><td>{change['name']}</td><td><code>{change['old']}</code></td><td>{change['new']}</td></tr>"
-        html += "</tbody></table>"
-    
-    html += """
-        <button onclick="window.location.href='/debug_student_ids'">🔍 فحص النتائج</button>
-        <button onclick="window.location.href='/'">🏠 العودة إلى الرئيسية</button>
-    </body>
-    </html>
-    """
-    
-    return html
-
-# ============== APIs إدارة المستخدمين المتقدمة ==============
-@app.route("/users_list")
-@login_required
-def users_list():
-    try:
-        # ✅ السماح لكل من admin و super_admin
-        if session.get('role') not in ['admin', 'super_admin']:
-            return redirect(url_for('home'))
-
-        users = load_users()
-        users_data = []
-
-        for username, data in users.items():
-            role = data.get('role', 'user')
-            license_days = data.get('license_days')
-            license_expiry = data.get('license_expiry')
-            days_remaining = get_user_license_days_remaining(username)
-            created_at = data.get('created_at', '')
-
-            users_data.append({
-                'username': username,
-                'role': role,
-                'license_days': license_days,
-                'license_expiry': license_expiry,
-                'days_remaining': days_remaining,
-                'created_at': created_at[:10] if created_at else ''
-            })
-
-        return render_template('users_list.html', users=users_data)
-
-    except Exception as e:
-        print(f"❌ خطأ في صفحة المستخدمين: {e}")
-        import traceback
-        traceback.print_exc()
-        return f"<h1>خطأ في النظام</h1><p>الرجاء المحاولة لاحقاً</p><p>التفاصيل: {str(e)}</p>", 500
-# ============== دالة API للمستخدمين (تم إزالة التكرار) ==============
-@app.route("/api/users")
-@login_required
-def api_users():
-    """API لجلب بيانات المستخدمين مع حالة الترخيص"""
-    if session.get('role') not in ['admin', 'super_admin']:
-        return jsonify({"success": False, "message": "غير مصرح"}), 403
-    
-    users = load_users()
-    users_data = []
-    
-    for username, data in users.items():
-        role = data.get('role', 'user')
-        
-        # ✅ التعديل: super_admin يعتبر نشطاً دائماً وبترخيص غير محدود
-        if role == 'super_admin':
-            license_status = {
-                'has_license': True,
-                'days_remaining': -1,
-                'expiry_date': None,
-                'license_days': None,
-                'created_at': data.get('created_at')
-            }
-        else:
-            license_status = {
-                'has_license': data.get('license_expiry') is not None,
-                'days_remaining': get_user_license_days_remaining(username),
-                'expiry_date': data.get('license_expiry'),
-                'license_days': data.get('license_days'),
-                'created_at': data.get('created_at')
-            }
-        
-        users_data.append({
-            'username': username,
-            'role': role,
-            'license_status': license_status
-        })
-    
-    return jsonify({"success": True, "users": users_data})
-
-# ============== باقي دوال API ==============
-@app.route("/api/create_user", methods=["POST"])
-@login_required
-def api_create_user():
-    if session.get('role') not in ['admin', 'super_admin']:
-        return jsonify({"success": False, "message": "غير مصرح"}), 403
-    
-    data = request.get_json()
-    username = data.get('username', '').strip()
-    password = data.get('password', '')
-    role = data.get('role', 'user')
-    license_days = data.get('license_days', None)
-    
-    if not username or not password:
-        return jsonify({"success": False, "message": "الرجاء إدخال اسم المستخدم وكلمة المرور"})
-    
-    if len(password) < 4:
-        return jsonify({"success": False, "message": "كلمة المرور يجب أن تكون 4 أحرف على الأقل"})
-    
-    success, message = create_user(username, password, role, license_days)
-    return jsonify({"success": success, "message": message})
-
-@app.route("/api/update_user/<username>", methods=["PUT"])
-@login_required
-def api_update_user(username):
-    if session.get('role') not in ['admin', 'super_admin']:
-        return jsonify({"success": False, "message": "غير مصرح"}), 403
-    
-    data = request.get_json()
-    role = data.get('role')
-    password = data.get('password')
-    license_days = data.get('license_days', None)
-    
-    success, message = update_user(username, role, password, license_days)
-    return jsonify({"success": success, "message": message})
-
-@app.route("/api/delete_user/<username>", methods=["DELETE"])
-@login_required
-def api_delete_user(username):
-    if session.get('role') not in ['admin', 'super_admin']:
-        return jsonify({"success": False, "message": "غير مصرح"}), 403
-    
-    success, message = delete_user(username)
-    return jsonify({"success": success, "message": message})
-
-@app.route("/api/check_license_status")
-@login_required
-def check_license_status():
-    """API للتحقق من حالة ترخيص المستخدم الحالي"""
-    username = session.get('username')
-    days_remaining = get_user_license_days_remaining(username)
-    
-    return jsonify({
-        'success': True,
-        'has_license': days_remaining > 0 or days_remaining == -1,
-        'days_remaining': days_remaining,
-        'is_unlimited': days_remaining == -1,
-        'username': username,
-        'role': session.get('role')
-    })
-
-@app.route("/api/user_license_days")
-@login_required
-def api_user_license_days():
-    """API لعرض عدد الأيام المتبقية من الترخيص"""
-    username = session.get('username')
-    days_remaining = get_user_license_days_remaining(username)
-    return jsonify({
-        'success': True,
-        'days_remaining': days_remaining,
-        'is_unlimited': days_remaining == -1
-    })
-
-@app.route("/api/remaining_trials")
-@login_required
-def api_remaining_trials():
-    """API متوافق مع القوالب القديمة - يعيد الأيام المتبقية"""
-    username = session.get('username')
-    days_remaining = get_user_license_days_remaining(username)
-    if days_remaining == -1:
-        return jsonify({"success": True, "remaining": "غير محدود", "is_unlimited": True})
-    return jsonify({"success": True, "remaining": days_remaining if days_remaining > 0 else 0})
-
-# ============== API إدارة الطلاب ==============
-@app.route("/api/create_student", methods=["POST"])
-@license_required
-def api_create_student():
-    if session.get('role') not in ['admin', 'editor']:
-        return jsonify({"success": False, "message": "غير مصرح - ليس لديك صلاحية الإضافة"})
-    
-    data = request.get_json()
-    student_id = str(data.get('student_id', '')).strip()
-    name = data.get('name', '').strip()
-    grade = data.get('grade', 'الأول الثانوي')
-    class_val = data.get('class', '1')
-    phone = data.get('phone', '')
-    parent_phone = data.get('parent_phone', '')
-    
-    if not student_id or not name:
-        return jsonify({"success": False, "message": "الرجاء إدخال رقم الطالب واسمه"})
-    
-    student_id = clean_student_id(student_id)
-    
-    existing = supabase.table("students").select("*").eq("student_id", student_id).execute()
-    if existing.data:
-        return jsonify({"success": False, "message": f"الطالب رقم {student_id} موجود بالفعل"})
-    
-    new_student = {
-        'student_id': student_id,
-        'name': name,
-        'grade': grade,
-        'class': class_val,
-        'phone': phone,
-        'parent_phone': parent_phone
-    }
-    
-    try:
-        supabase.table("students").insert(new_student).execute()
-        return jsonify({"success": True, "message": f"تم إضافة الطالب {name} بنجاح"})
+        return jsonify({"success": True, "message": "تم إلغاء الترخيص"})
     except Exception as e:
         return jsonify({"success": False, "message": str(e)})
-
-@app.route("/api/update_student/<student_id>", methods=["PUT"])
-@license_required
-def api_update_student(student_id):
-    if session.get('role') not in ['admin', 'editor']:
-        return jsonify({"success": False, "message": "غير مصرح - ليس لديك صلاحية التعديل"})
-    
-    data = request.get_json()
-    
-    update_data = {}
-    if 'name' in data:
-        update_data['name'] = data['name']
-    if 'grade' in data:
-        update_data['grade'] = data['grade']
-    if 'class' in data:
-        update_data['class'] = data['class']
-    if 'phone' in data:
-        update_data['phone'] = data['phone']
-    if 'parent_phone' in data:
-        update_data['parent_phone'] = data['parent_phone']
-    
-    if not update_data:
-        return jsonify({"success": False, "message": "لا توجد بيانات للتحديث"})
-    
-    try:
-        supabase.table("students").update(update_data).eq("student_id", student_id).execute()
-        return jsonify({"success": True, "message": f"تم تحديث بيانات الطالب بنجاح"})
-    except Exception as e:
-        return jsonify({"success": False, "message": str(e)})
-
-@app.route("/api/delete_student/<student_id>", methods=["DELETE"])
-@license_required
-def api_delete_student(student_id):
-    if session.get('role') != 'admin':
-        return jsonify({"success": False, "message": "غير مصرح - ليس لديك صلاحية الحذف"})
-    
-    try:
-        supabase.table("attendance").delete().eq("student_id", student_id).execute()
-        supabase.table("students").delete().eq("student_id", student_id).execute()
-        return jsonify({"success": True, "message": f"تم حذف الطالب رقم {student_id} وجميع سجلات حضوره"})
-    except Exception as e:
-        return jsonify({"success": False, "message": str(e)})
-
-# ============== الصفحات الرئيسية (محمية بالترخيص) ==============
-@app.route("/dashboard")
-@license_required
-def home():
-    return render_template("index.html")
-
-@app.route("/scan")
-@license_required
-def scan():
-    return render_template("scan.html")
-
-@app.route("/general_reports")
-@license_required
-def general_reports():
-    return render_template("general_reports.html")
-
-@app.route("/monthly_reports")
-@license_required
-def monthly_reports_page():
-    return render_template("monthly_reports.html")
-
-@app.route("/charts")
-@license_required
-def charts_page():
-    return render_template("charts.html")
-
-@app.route("/class_reports")
-@license_required
-def class_reports():
-    return render_template("class_reports.html")
-
-@app.route("/backup")
-@license_required
-def backup_page():
-    # ✅ التعديل: السماح لكل من admin و super_admin
-    if session.get('role') not in ['admin', 'super_admin']:
-        return redirect(url_for('home'))
-    return render_template("backup.html")
-
-@app.route("/manage_students")
-@license_required
-def manage_students():
-    return render_template("manage_students.html")
-
-# ============== إعادة توجيه الصفحات القديمة ==============
-@app.route("/reports")
-@license_required
-def reports_redirect():
-    return redirect(url_for('general_reports'))
-
-@app.route("/dashboard")
-@license_required
-def dashboard_redirect():
-    return redirect(url_for('charts'))
-
-@app.route("/reports_dashboard")
-@license_required
-def reports_dashboard_redirect():
-    return redirect(url_for('general_reports'))
-
-# ============== تبديل اللغة ==============
-@app.route("/api/set_language/<lang>")
-@license_required
-def set_language_route(lang):
-    if lang in ['ar', 'en']:
-        session['language'] = lang
-    return redirect(request.referrer or url_for('home'))
-
-# ============== API تسجيل الحضور ==============
-@app.route("/api/register", methods=["POST"])
-@license_required
-def register_attendance():
-    try:
-        can_register, error_message = can_register_attendance()
-        if not can_register:
-            return jsonify({"success": False, "message": error_message})
-
-        data = request.get_json()
-        student_id = str(data.get("student_id", "")).strip()
-
-        if not student_id:
-            return jsonify({"success": False, "message": "الرجاء إدخال رقم الطالب"})
-
-        students = get_live_students()
-        student = None
-        for s in students:
-            if str(s.get('student_id', '')) == student_id:
-                student = s
-                break
-
-        if not student:
-            return jsonify({"success": False, "message": f"الطالب {student_id} غير موجود"})
-
-        status, current_time = get_attendance_status()
-        now = get_saudi_time()
-        current_date = now.strftime("%Y-%m-%d")
-
-        existing = supabase.table("attendance").select("*").eq("student_id", student_id).eq("date", current_date).execute()
-
-        if existing.data:
-            return jsonify({
-                "success": False,
-                "message": f"⚠️ {student.get('name')} مسجل مسبقاً اليوم"
-            })
-
-        new_record = {
-            'student_id': student_id,
-            'student_name': str(student.get('name', '')),
-            'grade': str(student.get('grade', '')),
-            'class': str(student.get('class', '')),
-            'date': current_date,
-            'time': current_time,
-            'status': status,
-            'timestamp': now.isoformat()
-        }
-
-        if save_attendance(new_record):
-            parent_phone = student.get('parent_phone', '')
-            if parent_phone and len(parent_phone) > 5 and twilio_enabled:
-                send_whatsapp_message(parent_phone, student.get('name', ''), status, current_time)
-
-            return jsonify({
-                "success": True,
-                "message": f"✅ تم تسجيل حضور {student.get('name')} - {status} الساعة {current_time}",
-                "student_name": str(student.get('name', '')),
-                "student_grade": str(student.get('grade', '')),
-                "student_class": str(student.get('class', '')),
-                "time": current_time,
-                "date": current_date,
-                "status": status
-            })
-        else:
-            return jsonify({"success": False, "message": "فشل حفظ البيانات"})
-    except Exception as e:
-        return jsonify({"success": False, "message": str(e)})
-
-# ============== API النسخ الاحتياطي ==============
-@app.route("/api/create_backup")
-@license_required
-def manual_backup():
-    if session.get('role') not in ['admin', 'super_admin']:
-        return jsonify({"success": False, "message": "غير مصرح"})
-
-    success, message = create_backup()
-    return jsonify({"success": success, "message": message})
-
-@app.route("/api/list_backups")
-@license_required
-def list_backups():
-    if session.get('role') not in ['admin', 'super_admin']:
-        return jsonify({"success": False, "message": "غير مصرح"})
-
-    backup_dir = "backups"
-    if not os.path.exists(backup_dir):
-        return jsonify({"success": True, "backups": []})
-
-    files = []
-    for file in os.listdir(backup_dir):
-        if file.endswith('.xlsx'):
-            stat = os.stat(os.path.join(backup_dir, file))
-            files.append({
-                'name': file,
-                'size': stat.st_size,
-                'size_kb': round(stat.st_size / 1024, 2),
-                'date': datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%d %H:%M:%S")
-            })
-
-    files.sort(key=lambda x: x['date'], reverse=True)
-    return jsonify({"success": True, "backups": files})
-
-@app.route("/api/download_backup/<filename>")
-@license_required
-def download_backup(filename):
-    if session.get('role') not in ['admin', 'super_admin']:
-        return jsonify({"success": False, "message": "غير مصرح"})
-
-    backup_path = os.path.join("backups", filename)
-    if os.path.exists(backup_path):
-        return send_file(backup_path, as_attachment=True)
-    return jsonify({"success": False, "message": "الملف غير موجود"})
-
-# ============== API الرسوم البيانية ==============
-@app.route("/api/attendance_trend")
-@license_required
-def attendance_trend():
-    year = int(request.args.get('year', get_saudi_time().year))
-    attendance = get_live_attendance()
-
-    def get_month_name(month):
-        months = {1: 'يناير', 2: 'فبراير', 3: 'مارس', 4: 'أبريل', 5: 'مايو', 6: 'يونيو',
-                  7: 'يوليو', 8: 'أغسطس', 9: 'سبتمبر', 10: 'أكتوبر', 11: 'نوفمبر', 12: 'ديسمبر'}
-        return months.get(month, str(month))
-
-    monthly_data = []
-    for month in range(1, 13):
-        month_records = [r for r in attendance if r.get('date', '').startswith(f"{year}-{month:02d}")]
-        present = len([r for r in month_records if r.get('status') == 'حاضر في الوقت'])
-        late = len([r for r in month_records if r.get('status') == 'متأخر'])
-
-        monthly_data.append({
-            'month': get_month_name(month),
-            'present': present,
-            'late': late,
-            'total': present + late
-        })
-
-    return jsonify({
-        "success": True,
-        "year": year,
-        "data": monthly_data
-    })
-
-@app.route("/api/weekly_attendance")
-@license_required
-def weekly_attendance():
-    attendance = get_live_attendance()
-    weekdays = ['الأحد', 'الإثنين', 'الثلاثاء', 'الأربعاء', 'الخميس']
-    day_stats = {day: {'present': 0, 'late': 0, 'total': 0} for day in weekdays}
-
-    for record in attendance:
-        try:
-            record_date = datetime.strptime(record.get('date', ''), "%Y-%m-%d")
-            weekday = record_date.weekday()
-            if weekday in [4, 5]:
-                continue
-            day_name = weekdays[weekday]
-            if record.get('status') == 'حاضر في الوقت':
-                day_stats[day_name]['present'] += 1
-            elif record.get('status') == 'متأخر':
-                day_stats[day_name]['late'] += 1
-            day_stats[day_name]['total'] += 1
-        except:
-            pass
-
-    result = []
-    for day in weekdays:
-        total = day_stats[day]['total']
-        result.append({
-            'day': day,
-            'attendance_rate': round((day_stats[day]['present'] + day_stats[day]['late']) / max(total, 1) * 100, 2) if total > 0 else 0,
-            'present': day_stats[day]['present'],
-            'late': day_stats[day]['late']
-        })
-
-    return jsonify({"success": True, "data": result})
-
-# ============== API التقارير الأساسية ==============
-@app.route("/api/students_list")
-@license_required
-def students_list():
-    students = get_live_students()
-    response = make_response(jsonify({"success": True, "data": students}))
-    response.headers['Content-Type'] = 'application/json; charset=utf-8'
-    return response
-
-@app.route("/api/attendance_summary")
-@license_required
-def attendance_summary():
-    today = get_saudi_time().strftime("%Y-%m-%d")
-    students = get_live_students()
-    attendance = get_live_attendance()
-
-    total = len(students)
-    today_records = [r for r in attendance if r.get('date') == today]
-    present = len([r for r in today_records if r.get('status') == 'حاضر في الوقت'])
-    late = len([r for r in today_records if r.get('status') == 'متأخر'])
-    absent = total - (present + late)
-    percentage = round((present + late) / total * 100, 1) if total > 0 else 0
-
-    response = make_response(jsonify({
-        "success": True,
-        "total_students": total,
-        "present": present,
-        "late": late,
-        "absent": absent if absent > 0 else 0,
-        "percentage": percentage,
-        "date": today
-    }))
-    response.headers['Content-Type'] = 'application/json; charset=utf-8'
-    return response
-
-@app.route("/api/attendance_details/<date>")
-@license_required
-def attendance_details(date):
-    students = get_live_students()
-    attendance = get_live_attendance()
-
-    result = []
-    for student in students:
-        record = None
-        for r in attendance:
-            if r.get('student_id') == student.get('student_id') and r.get('date') == date:
-                record = r
-                break
-        result.append({
-            'student_id': student.get('student_id'),
-            'student_name': student.get('name'),
-            'grade': student.get('grade'),
-            'class': student.get('class'),
-            'status': record.get('status') if record else 'غائب',
-            'time': record.get('time') if record else '-'
-        })
-    response = make_response(jsonify({"success": True, "data": result}))
-    response.headers['Content-Type'] = 'application/json; charset=utf-8'
-    return response
-
-@app.route("/api/absent_students_today")
-@license_required
-def absent_students_today():
-    today = get_saudi_time().strftime("%Y-%m-%d")
-    students = get_live_students()
-    attendance = get_live_attendance()
-
-    present_ids = set(r.get('student_id') for r in attendance if r.get('date') == today)
-    absent = [s for s in students if s.get('student_id') not in present_ids]
-    response = make_response(jsonify({"success": True, "data": absent, "count": len(absent), "date": today}))
-    response.headers['Content-Type'] = 'application/json; charset=utf-8'
-    return response
-
-@app.route("/api/top_students")
-@license_required
-def top_students():
-    attendance = get_live_attendance()
-    counts = {}
-    for r in attendance:
-        if r.get('status') in ['حاضر في الوقت', 'متأخر']:
-            name = r.get('student_name')
-            counts[name] = counts.get(name, 0) + 1
-    sorted_students = sorted(counts.items(), key=lambda x: x[1], reverse=True)[:10]
-    response = make_response(jsonify({"success": True, "data": [{"name": n, "count": c} for n, c in sorted_students]}))
-    response.headers['Content-Type'] = 'application/json; charset=utf-8'
-    return response
-
-@app.route("/api/student_report/<student_id>")
-@license_required
-def student_report(student_id):
-    students = get_live_students()
-    student = next((s for s in students if s.get('student_id') == student_id), None)
-    if not student:
-        return jsonify({"success": False, "error": "الطالب غير موجود"})
-
-    attendance = get_live_attendance()
-    records = [r for r in attendance if r.get('student_id') == student_id]
-    records.sort(key=lambda x: x.get('date', ''), reverse=True)
-
-    response = make_response(jsonify({
-        "success": True,
-        "student_name": student.get('name'),
-        "student_id": student_id,
-        "grade": student.get('grade'),
-        "class": student.get('class'),
-        "records": records
-    }))
-    response.headers['Content-Type'] = 'application/json; charset=utf-8'
-    return response
-
-# ============== التقارير الشهرية ==============
-@app.route("/api/monthly_report")
-@license_required
-def monthly_report():
-    year = int(request.args.get('year', get_saudi_time().year))
-    month = int(request.args.get('month', get_saudi_time().month))
-    students = get_live_students()
-    attendance = get_live_attendance()
-
-    days_in_month = monthrange(year, month)[1]
-    daily_stats = []
-    total_present = 0
-    total_late = 0
-    total_absent = 0
-    total_days_with_attendance = 0
-
-    def get_month_name(month):
-        months = {1: 'يناير', 2: 'فبراير', 3: 'مارس', 4: 'أبريل', 5: 'مايو', 6: 'يونيو',
-                  7: 'يوليو', 8: 'أغسطس', 9: 'سبتمبر', 10: 'أكتوبر', 11: 'نوفمبر', 12: 'ديسمبر'}
-        return months.get(month, str(month))
-
-    for day in range(1, days_in_month + 1):
-        date_str = f"{year}-{month:02d}-{day:02d}"
-        day_records = [r for r in attendance if r.get('date') == date_str]
-        present = len([r for r in day_records if r.get('status') == 'حاضر في الوقت'])
-        late = len([r for r in day_records if r.get('status') == 'متأخر'])
-        absent = len(students) - (present + late)
-
-        total_present += present
-        total_late += late
-        total_absent += absent
-
-        if present + late > 0:
-            total_days_with_attendance += 1
-
-        daily_stats.append({
-            'day': day,
-            'date': date_str,
-            'present': present,
-            'late': late,
-            'absent': absent if absent > 0 else 0,
-            'percentage': round((present + late) / len(students) * 100, 2) if len(students) > 0 else 0
-        })
-
-    avg_attendance = round((total_present + total_late) / (days_in_month * len(students)) * 100, 2) if len(students) > 0 else 0
-
-    if request.args.get('export') == 'excel':
-        df = pd.DataFrame(daily_stats)
-        filename = f"monthly_report_{year}_{month}.xlsx"
-        df.to_excel(filename, index=False, engine='openpyxl')
-        return send_file(filename, as_attachment=True)
-
-    response = make_response(jsonify({
-        "success": True,
-        "year": year,
-        "month": month,
-        "month_name": get_month_name(month),
-        "days_in_month": days_in_month,
-        "total_students": len(students),
-        "summary": {
-            "total_present": total_present,
-            "total_late": total_late,
-            "total_absent": total_absent,
-            "avg_attendance_rate": avg_attendance,
-            "days_with_attendance": total_days_with_attendance,
-            "best_day": max(daily_stats, key=lambda x: x['present'] + x['late']) if daily_stats else None,
-            "worst_day": min(daily_stats, key=lambda x: x['present'] + x['late']) if daily_stats else None
-        },
-        "daily_stats": daily_stats
-    }))
-    response.headers['Content-Type'] = 'application/json; charset=utf-8'
-    return response
-
-@app.route("/api/student_monthly_report/<student_id>")
-@license_required
-def student_monthly_report(student_id):
-    year = int(request.args.get('year', get_saudi_time().year))
-    month = int(request.args.get('month', get_saudi_time().month))
-
-    students = get_live_students()
-    student = next((s for s in students if s.get('student_id') == student_id), None)
-    if not student:
-        return jsonify({"success": False, "error": "الطالب غير موجود"})
-
-    days_in_month = monthrange(year, month)[1]
-    attendance = get_live_attendance()
-    student_records = [r for r in attendance if r.get('student_id') == student_id]
-
-    daily_status = []
-    present_count = 0
-    late_count = 0
-
-    for day in range(1, days_in_month + 1):
-        date_str = f"{year}-{month:02d}-{day:02d}"
-        record = next((r for r in student_records if r.get('date') == date_str), None)
-
-        if record:
-            if record.get('status') == 'حاضر في الوقت':
-                present_count += 1
-            elif record.get('status') == 'متأخر':
-                late_count += 1
-
-        daily_status.append({
-            'day': day,
-            'date': date_str,
-            'status': record.get('status') if record else 'غائب',
-            'time': record.get('time') if record else '-'
-        })
-
-    absent_count = days_in_month - (present_count + late_count)
-    attendance_rate = round((present_count + late_count) / days_in_month * 100, 2)
-
-    if request.args.get('export') == 'excel':
-        df = pd.DataFrame(daily_status)
-        filename = f"student_{student_id}_{year}_{month}.xlsx"
-        df.to_excel(filename, index=False, engine='openpyxl')
-        return send_file(filename, as_attachment=True)
-
-    response = make_response(jsonify({
-        "success": True,
-        "student_id": student_id,
-        "student_name": student.get('name'),
-        "grade": student.get('grade'),
-        "class": student.get('class'),
-        "year": year,
-        "month": month,
-        "month_name": get_month_name(month),
-        "days_in_month": days_in_month,
-        "summary": {
-            "present": present_count,
-            "late": late_count,
-            "absent": absent_count,
-            "attendance_rate": attendance_rate
-        },
-        "daily_status": daily_status
-    }))
-    response.headers['Content-Type'] = 'application/json; charset=utf-8'
-    return response
-
-@app.route("/api/comparative_monthly_report")
-@license_required
-def comparative_monthly_report():
-    year = int(request.args.get('year', get_saudi_time().year))
-    months = request.args.get('months', '1,2,3,4,5,6,7,8,9,10,11,12')
-    months = [int(m) for m in months.split(',')]
-
-    students = get_live_students()
-    attendance = get_live_attendance()
-
-    def get_month_name(month):
-        months = {1: 'يناير', 2: 'فبراير', 3: 'مارس', 4: 'أبريل', 5: 'مايو', 6: 'يونيو',
-                  7: 'يوليو', 8: 'أغسطس', 9: 'سبتمبر', 10: 'أكتوبر', 11: 'نوفمبر', 12: 'ديسمبر'}
-        return months.get(month, str(month))
-
-    monthly_summary = []
-    for month in months:
-        days_in_month = monthrange(year, month)[1]
-        month_records = [r for r in attendance if r.get('date', '').startswith(f"{year}-{month:02d}")]
-
-        present = len([r for r in month_records if r.get('status') == 'حاضر في الوقت'])
-        late = len([r for r in month_records if r.get('status') == 'متأخر'])
-        expected = days_in_month * len(students)
-
-        monthly_summary.append({
-            'month': month,
-            'month_name': get_month_name(month),
-            'present': present,
-            'late': late,
-            'total_attendance': present + late,
-            'expected': expected,
-            'attendance_rate': round((present + late) / expected * 100, 2) if expected > 0 else 0
-        })
-
-    response = make_response(jsonify({
-        "success": True,
-        "year": year,
-        "total_students": len(students),
-        "monthly_summary": monthly_summary
-    }))
-    response.headers['Content-Type'] = 'application/json; charset=utf-8'
-    return response
-
-# ============== API التقارير الأخرى ==============
-@app.route("/api/attendance_chart")
-@license_required
-def attendance_chart():
-    today = get_saudi_time().strftime("%Y-%m-%d")
-    students = get_live_students()
-    attendance = get_live_attendance()
-
-    today_records = [r for r in attendance if r.get('date') == today]
-    present = len([r for r in today_records if r.get('status') == 'حاضر في الوقت'])
-    late = len([r for r in today_records if r.get('status') == 'متأخر'])
-    absent = len(students) - (present + late)
-    response = make_response(jsonify({
-        "success": True,
-        "labels": ["حاضر في الوقت", "متأخر", "غائب"],
-        "data": [present, late, absent],
-        "colors": ["#28a745", "#fd7e14", "#dc3545"]
-    }))
-    response.headers['Content-Type'] = 'application/json; charset=utf-8'
-    return response
-
-@app.route("/api/dashboard_stats")
-@license_required
-def dashboard_stats():
-    today = get_saudi_time().strftime("%Y-%m-%d")
-    students = get_live_students()
-    attendance = get_live_attendance()
-
-    total = len(students)
-    today_records = [r for r in attendance if r.get('date') == today]
-    present = len([r for r in today_records if r.get('status') == 'حاضر في الوقت'])
-    late = len([r for r in today_records if r.get('status') == 'متأخر'])
-    absent = total - (present + late)
-    percentage = round((present + late) / total * 100, 1) if total > 0 else 0
-
-    response = make_response(jsonify({
-        "success": True,
-        "percentage": percentage,
-        "present_today": present + late,
-        "present": present,
-        "late": late,
-        "absent": absent,
-        "total_students": total,
-        "total_records": len(attendance)
-    }))
-    response.headers['Content-Type'] = 'application/json; charset=utf-8'
-    return response
-
-# ============== APIs التصدير ==============
-@app.route("/api/export_today_excel")
-@license_required
-def export_today_excel():
-    today = get_saudi_time().strftime("%Y-%m-%d")
-    filename = f"attendance_{today}.xlsx"
-    students = get_live_students()
-    attendance = get_live_attendance()
-
-    result = []
-    for student in students:
-        record = None
-        for r in attendance:
-            if r.get('student_id') == student.get('student_id') and r.get('date') == today:
-                record = r
-                break
-        result.append({
-            'رقم الطالب': student.get('student_id'),
-            'اسم الطالب': student.get('name'),
-            'الصف': student.get('grade'),
-            'الشعبة': student.get('class'),
-            'وقت التسجيل': record.get('time') if record else '-',
-            'الحالة': record.get('status') if record else 'غائب'
-        })
-    df = pd.DataFrame(result)
-    df.to_excel(filename, index=False, engine='openpyxl')
-    return send_file(filename, as_attachment=True)
-
-@app.route("/api/export_attendance/<date>")
-@license_required
-def export_attendance(date):
-    filename = f"attendance_{date}.xlsx"
-    students = get_live_students()
-    attendance = get_live_attendance()
-
-    result = []
-    for student in students:
-        record = None
-        for r in attendance:
-            if r.get('student_id') == student.get('student_id') and r.get('date') == date:
-                record = r
-                break
-        result.append({
-            'رقم الطالب': student.get('student_id'),
-            'اسم الطالب': student.get('name'),
-            'الصف': student.get('grade'),
-            'الشعبة': student.get('class'),
-            'وقت التسجيل': record.get('time') if record else '-',
-            'الحالة': record.get('status') if record else 'غائب'
-        })
-    df = pd.DataFrame(result)
-    df.to_excel(filename, index=False, engine='openpyxl')
-    return send_file(filename, as_attachment=True)
-
-@app.route("/api/export_student_excel/<student_id>")
-@license_required
-def export_student_excel(student_id):
-    students = get_live_students()
-    student = next((s for s in students if s.get('student_id') == student_id), None)
-    if not student:
-        return jsonify({"success": False, "error": "الطالب غير موجود"})
-
-    attendance = get_live_attendance()
-    records = [r for r in attendance if r.get('student_id') == student_id]
-    records.sort(key=lambda x: x.get('date', ''), reverse=True)
-
-    filename = f"student_{student_id}_report.xlsx"
-    df = pd.DataFrame(records)
-    df.to_excel(filename, index=False, engine='openpyxl')
-    return send_file(filename, as_attachment=True)
-
-# ============== APIs إدارة البيانات ==============
-@app.route("/api/upload_local_students")
-@license_required
-def upload_local_students():
-    try:
-        if os.path.exists("students.csv"):
-            df = pd.read_csv("students.csv", encoding='utf-8-sig')
-        elif os.path.exists("students.xlsx"):
-            df = pd.read_excel("students.xlsx")
-        else:
-            return jsonify({"success": False, "message": "لا يوجد ملف students.csv أو students.xlsx"})
-
-        df = df.fillna("")
-        for col in df.columns:
-            df[col] = df[col].astype(str)
-
-        df['student_id'] = df['student_id'].str.replace('.0', '', regex=False).str.strip()
-        df['student_id'] = df['student_id'].apply(clean_student_id)
-        records = df.to_dict("records")
-
-        supabase.table("students").delete().neq("student_id", "").execute()
-
-        batch_size = 50
-        for i in range(0, len(records), batch_size):
-            batch = records[i:i+batch_size]
-            supabase.table("students").insert(batch).execute()
-
-        return jsonify({"success": True, "message": f"تم رفع {len(records)} طالب إلى Supabase"})
-    except Exception as e:
-        return jsonify({"success": False, "message": str(e)})
-
-@app.route("/api/refresh_all")
-@license_required
-def refresh_all():
-    students = get_live_students()
-    attendance = get_live_attendance()
-    return jsonify({
-        "success": True,
-        "students_count": len(students),
-        "attendance_count": len(attendance)
-    })
-
-@app.route("/api/direct_test")
-@license_required
-def direct_test():
-    try:
-        result = supabase.table("attendance").select("*").limit(10).execute()
-        return jsonify({"success": True, "total_rows": len(result.data), "sample_data": result.data})
-    except Exception as e:
-        return jsonify({"success": False, "error": str(e)})
-
-@app.route("/api/clear_attendance")
-@license_required
-def clear_attendance():
-    try:
-        supabase.table("attendance").delete().neq("student_id", "").execute()
-        return jsonify({"success": True, "message": "تم مسح جميع سجلات الحضور"})
-    except Exception as e:
-        return jsonify({"success": False, "message": str(e)})
-
-@app.route("/api/stats")
-@license_required
-def stats():
-    students = get_live_students()
-    attendance = get_live_attendance()
-    return jsonify({
-        "success": True,
-        "students_count": len(students),
-        "attendance_count": len(attendance),
-        "storage": "supabase"
-    })
-
-@app.route("/api/saudi_time")
-@license_required
-def saudi_time():
-    now = get_saudi_time()
-    return jsonify({
-        "success": True,
-        "datetime": now.strftime("%Y-%m-%d %H:%M:%S"),
-        "is_weekend": is_weekend(now.date()),
-        "can_register": can_register_attendance()[0]
-    })
-
-@app.route("/test_supabase")
-def test_supabase():
-    try:
-        result = supabase.table("students").select("*").execute()
-        return {"success": True, "rows": len(result.data)}
-    except Exception as e:
-        return {"success": False, "error": str(e)}
-
-@app.route("/test_attendance")
-def test_attendance():
-    try:
-        result = supabase.table("attendance").select("*").execute()
-        return {"success": True, "rows": len(result.data), "sample": result.data[:3]}
-    except Exception as e:
-        return {"success": False, "error": str(e)}
-
-@app.route("/health")
-def health():
-    return {"status": "ok", "database": "supabase"}
-
-# ============== صفحة عدم الاتصال (PWA Offline) ==============
-@app.route('/offline')
-def offline_page():
-    return render_template('offline.html')
-
-# ============== معلومات الترخيص ==============
-@app.route('/trial_info')
-def trial_info():
-    """عرض معلومات الترخيص"""
-    if 'logged_in' in session and 'username' in session:
-        username = session.get('username')
-        days_remaining = get_user_license_days_remaining(username)
-        return render_template('trial_info.html', remaining=days_remaining if days_remaining > 0 else 0)
-    return render_template('trial_info.html', remaining=0)
-
-# ============== الصفحة الترحيبية ==============
-@app.route('/')
-def landing():
-    """الصفحة الترحيبية الرئيسية للتطبيق"""
-    # إذا كان المستخدم مسجل الدخول، انتقل مباشرة إلى لوحة التحكم
-    if 'logged_in' in session:
-        return redirect(url_for('home'))
-    return render_template('landing.html')
-
-# ============== مسارات المدير العام (جديدة) ==============
-
-@app.route('/admin/dashboard')
-@login_required
-@super_admin_required
-def admin_dashboard():
-    """لوحة تحكم المدير العام - إدارة المدارس"""
-    schools = get_all_schools()
-    total_schools = len(schools)
-    active_schools = len([s for s in schools if s.get('is_active')]) if schools else 0
-    
-    # جلب إحصائيات كل مدرسة
-    school_stats = []
-    for school in schools[:20]:
-        stats = get_school_stats(school['id'])
-        if stats:
-            school_stats.append({
-                'id': school['id'],
-                'name': school['name'],
-                'subdomain': school['subdomain'],
-                'license_expiry': school.get('license_expiry'),
-                'is_active': school.get('is_active', True),
-                'plan': school.get('plan', 'basic'),
-                'students': stats.get('total_students', 0),
-                'attendance': stats.get('total_attendance', 0)
-            })
-    
-    # جلب إحصائيات إضافية
-    all_students = get_live_students()
-    users = load_users()
-    
-    return render_template('admin_dashboard.html', 
-                         schools=school_stats,
-                         total_schools=total_schools,
-                         active_schools=active_schools,
-                         total_students_all=len(all_students),
-                         total_users=len(users))
-
-@app.route('/admin/schools')
-@login_required
-@super_admin_required
-def admin_schools():
-    """صفحة إدارة المدارس"""
-    schools = get_all_schools()
-    return render_template('admin_schools.html', schools=schools)
-
-@app.route('/admin/subscriptions')
-@login_required
-@super_admin_required
-def admin_subscriptions():
-    """صفحة إدارة اشتراكات المدارس"""
-    schools = get_all_schools()
-    return render_template('admin_subscriptions.html', schools=schools)
-
-@app.route('/school/settings')
-@login_required
-@super_admin_required
-def school_settings():
-    """صفحة إعدادات المدرسة الحالية"""
-    print(f"🔍 Host: {request.host}")
-    
-    school = get_school_from_domain(request.host)
-    
-    # إذا لم توجد المدرسة، قم بإنشائها تلقائياً
-    if not school:
-        try:
-            subdomain = request.host.split('.')[0]
-            print(f"⚠️ لم يتم العثور على مدرسة، جاري إنشاء مدرسة افتراضية للنطاق: {subdomain}")
-            
-            new_school = {
-                'name': f'مدرسة {subdomain}',
-                'subdomain': subdomain,
-                'plan': 'premium',
-                'is_active': True,
-                'license_expiry': (datetime.now() + timedelta(days=365)).isoformat()
-            }
-            
-            result = supabase.table("schools").insert(new_school).execute()
-            school = result.data[0] if result.data else None
-            flash('تم إنشاء المدرسة تلقائياً', 'success')
-        except Exception as e:
-            print(f"❌ خطأ في إنشاء المدرسة: {e}")
-            flash('حدث خطأ في إنشاء المدرسة', 'error')
-            return redirect(url_for('admin_dashboard'))
-    
-    print(f"🔍 School found: {school}")
-    
-    if not school:
-        flash('المدرسة غير موجودة', 'error')
-        return redirect(url_for('admin_dashboard'))
-    
-    # جلب إعدادات Twilio من البيئة
-    twilio_configured = bool(os.environ.get('TWILIO_ACCOUNT_SID') and os.environ.get('TWILIO_AUTH_TOKEN'))
-    
-    return render_template('school_settings.html', 
-                         school=school,
-                         twilio_configured=twilio_configured)
 
 @app.route('/api/admin/create_school', methods=['POST'])
 @login_required
@@ -2769,7 +1499,6 @@ def update_school_api(school_id):
         update_data['is_active'] = data['is_active']
     if 'plan' in data:
         update_data['plan'] = data['plan']
-        # تحديث مدة الترخيص حسب الخطة
         plan_days = {'basic': 30, 'premium': 365, 'enterprise': 730}
         if data['plan'] in plan_days:
             update_data['license_expiry'] = (datetime.now() + timedelta(days=plan_days[data['plan']])).isoformat()
@@ -2786,21 +1515,10 @@ def update_school_api(school_id):
 def delete_school_api(school_id):
     """حذف مدرسة"""
     try:
-        # حذف المدرسة من قاعدة البيانات الرئيسية
         supabase.table("schools").delete().eq("id", school_id).execute()
         return jsonify({"success": True, "message": "تم حذف المدرسة بنجاح"})
     except Exception as e:
         return jsonify({"success": False, "message": str(e)}), 500
-
-@app.route('/api/admin/school_stats/<school_id>')
-@login_required
-@super_admin_required
-def school_stats_api(school_id):
-    """جلب إحصائيات مدرسة محددة"""
-    stats = get_school_stats(school_id)
-    if stats:
-        return jsonify({"success": True, "data": stats})
-    return jsonify({"success": False, "message": "لا توجد بيانات"}), 404
 
 @app.route('/api/admin/extend_license/<school_id>', methods=['POST'])
 @login_required
@@ -2815,238 +1533,100 @@ def extend_license_api(school_id):
         return jsonify({"success": True, "message": message})
     return jsonify({"success": False, "message": message}), 400
 
-# ============== دوال إرسال الإشعارات المتقدمة ==============
-
-def get_students_by_filter(grade=None, class_val=None, student_id=None):
-    """
-    جلب الطلاب حسب الفلتر المحدد
-    """
-    students = get_live_students()
-    
-    if student_id:
-        student = next((s for s in students if s.get('student_id') == student_id), None)
-        return [student] if student else []
-    
-    filtered = students
-    
-    if grade:
-        filtered = [s for s in filtered if s.get('grade') == grade]
-    
-    if class_val:
-        filtered = [s for s in filtered if s.get('class') == class_val]
-    
-    return filtered
-
-
-def get_attendance_status_for_students(students, date=None):
-    """
-    الحصول على حالة الحضور للطلاب في تاريخ محدد
-    """
-    if not date:
-        date = datetime.now().strftime('%Y-%m-%d')
-    
-    attendance = get_live_attendance()
-    today_records = [r for r in attendance if r.get('date') == date]
-    
-    result = []
-    for student in students:
-        record = next((r for r in today_records if r.get('student_id') == student.get('student_id')), None)
-        result.append({
-            'student': student,
-            'status': record.get('status') if record else 'غائب',
-            'time': record.get('time') if record else '-',
-            'date': date
-        })
-    
-    return result
-
-
-def send_attendance_notifications(students_status, recipient_type='both', custom_message=None):
-    """
-    إرسال إشعارات للطلاب حسب حالتهم
-    """
-    sent_count = 0
-    errors = []
-    results = []
-    
-    for item in students_status:
-        student = item['student']
-        status = item['status']
-        student_name = student.get('name', '')
-        student_email = student.get('email', '')
-        parent_email = student.get('parent_email', '')
-        
-        # تحديد المستلمين
-        recipients = []
-        if recipient_type in ['student', 'both'] and student_email:
-            recipients.append(student_email)
-        if recipient_type in ['parent', 'both'] and parent_email:
-            recipients.append(parent_email)
-        
-        if not recipients:
-            errors.append(f"{student_name}: لا يوجد بريد إلكتروني مسجل")
-            continue
-        
-        # إرسال الإشعار
-        for email in recipients:
-            success, message = send_notification_email_advanced(
-                email, 
-                student_name, 
-                status, 
-                item.get('time'), 
-                item.get('date'),
-                custom_message
-            )
-            if success:
-                sent_count += 1
-            else:
-                errors.append(f"{email}: {message}")
-        
-        results.append({
-            'student': student_name,
-            'status': status,
-            'sent_to': len(recipients)
-        })
-    
-    return sent_count, errors, results
-
-
-def send_notification_email_advanced(recipient_email, student_name, status, time=None, date=None, custom_message=None):
-    """
-    إرسال إشعار بريدي مخصص حسب حالة الطالب
-    """
-    try:
-        if not app.config['MAIL_PASSWORD']:
-            return False, "البريد الإلكتروني غير مضبوط"
-        
-        if not recipient_email or '@' not in recipient_email:
-            return False, "البريد الإلكتروني غير صالح"
-        
-        # تحديد محتوى الرسالة حسب الحالة
-        if status == 'غائب' or status == 'absent':
-            title = "❌ تنبيه: غياب الطالب"
-            status_emoji = '❌'
-            status_text = 'غائب'
-            status_color = '#e53e3e'
-            default_message = """
-            نأسف لإبلاغكم بأن الطالب لم يحضر اليوم.
-            يرجى متابعة أسباب الغياب واتخاذ اللازم.
-            """
-        elif status == 'متأخر' or status == 'late':
-            title = "⏰ تنبيه: تأخر الطالب"
-            status_emoji = '⏰'
-            status_text = 'متأخر عن الحضور'
-            status_color = '#ed8936'
-            default_message = """
-            نحيطكم علماً بأن الطالب قد حضر متأخراً اليوم.
-            يرجى التنبيه على أهمية الالتزام بمواعيد الحضور.
-            """
-        else:
-            title = "✅ إشعار حضور"
-            status_emoji = '✅'
-            status_text = 'حاضر في الوقت المحدد'
-            status_color = '#28a745'
-            default_message = """
-            تم تسجيل حضور الطالب اليوم في الوقت المحدد.
-            نشكركم على متابعتكم المستمرة.
-            """
-        
-        # تنسيق الوقت والتاريخ
-        if not time:
-            time = datetime.now().strftime('%I:%M %p')
-        if not date:
-            date = datetime.now().strftime('%Y-%m-%d')
-        
-        # بناء الرسالة
-        message_body = custom_message or default_message
-        
-        html_body = f"""
-        <div style="font-family: 'Cairo', Arial, sans-serif; direction: rtl; max-width: 600px; margin: 0 auto; padding: 20px; background: #f7fafc; border-radius: 16px;">
-            <div style="background: linear-gradient(135deg, #667eea, #764ba2); padding: 25px; border-radius: 12px; text-align: center; color: white;">
-                <h2 style="margin: 0; font-size: 24px;">🎓 {title}</h2>
-                <p style="margin: 5px 0 0; opacity: 0.9;">نظام حضور الطلاب الذكي</p>
-            </div>
-            
-            <div style="background: white; padding: 25px; border-radius: 12px; margin-top: 20px; box-shadow: 0 4px 15px rgba(0,0,0,0.05);">
-                <div style="background: #f7fafc; padding: 15px; border-radius: 10px; margin-bottom: 20px;">
-                    <p style="margin: 8px 0; font-size: 16px;">
-                        <strong>👤 الطالب:</strong> {student_name}
-                    </p>
-                    <p style="margin: 8px 0;">
-                        <strong>📊 الحالة:</strong> 
-                        <span style="color: {status_color}; font-weight: bold;">{status_emoji} {status_text}</span>
-                    </p>
-                    <p style="margin: 8px 0;"><strong>🕐 وقت التسجيل:</strong> {time}</p>
-                    <p style="margin: 8px 0;"><strong>📅 التاريخ:</strong> {date}</p>
-                </div>
-                
-                <div style="background: #fef5e7; padding: 15px; border-radius: 10px; margin-bottom: 20px; border-right: 4px solid #ed8936;">
-                    <p style="margin: 0; font-size: 15px; line-height: 1.8;">
-                        {message_body}
-                    </p>
-                </div>
-                
-                <p style="color: #718096; font-size: 14px; border-top: 1px solid #e2e8f0; padding-top: 15px; margin-top: 15px;">
-                    📌 تم إرسال هذا الإشعار تلقائياً من نظام حضور الطلاب.
-                </p>
-            </div>
-            
-            <div style="text-align: center; margin-top: 20px; font-size: 12px; color: #a0aec0;">
-                <p>© 2026 نظام حضور الطلاب الذكي | جميع الحقوق محفوظة</p>
-            </div>
-        </div>
-        """
-        
-        subject = f"{title} - {student_name} - {date}"
-        
-        msg = Message(
-            subject=subject,
-            recipients=[recipient_email],
-            html=html_body,
-            sender=app.config['MAIL_DEFAULT_SENDER']
-        )
-        
-        mail.send(msg)
-        return True, "تم الإرسال"
-        
-    except Exception as e:
-        print(f"❌ خطأ في إرسال البريد: {e}")
-        return False, str(e)
-
-
-def send_bulk_notification_emails(recipients, student_name, status):
-    """
-    إرسال إشعارات بريدية لمجموعة من المستلمين
-    """
-    success_count = 0
-    errors = []
-    
-    for email in recipients:
-        if email and '@' in email:
-            success, message = send_notification_email_advanced(email, student_name, status)
-            if success:
-                success_count += 1
-            else:
-                errors.append(f"{email}: {message}")
-    
-    return success_count, errors
-
-
-# ============== API إرسال إشعارات متقدمة ==============
-
-@app.route('/api/send_attendance_notifications', methods=['POST'])
+@app.route('/api/admin/export_current_students')
 @login_required
-def send_attendance_notifications_api():
-    """
-    API لإرسال إشعارات للطلاب حسب حالتهم (غائب/متأخر)
-    """
+def export_current_students():
+    if session.get('role') not in ['admin', 'super_admin']:
+        return jsonify({"success": False, "message": "غير مصرح"}), 403
+    
+    try:
+        students = get_live_students()
+        if not students:
+            return jsonify({"success": False, "message": "لا توجد بيانات للتصدير"}), 404
+        
+        df = pd.DataFrame(students)
+        columns_order = ['student_id', 'name', 'grade', 'class', 'phone', 'parent_phone']
+        existing_columns = [col for col in columns_order if col in df.columns]
+        df = df[existing_columns]
+        
+        column_names_ar = {
+            'student_id': 'رقم الطالب',
+            'name': 'اسم الطالب',
+            'grade': 'الصف',
+            'class': 'الشعبة',
+            'phone': 'هاتف الطالب',
+            'parent_phone': 'هاتف ولي الأمر'
+        }
+        rename_dict = {col: column_names_ar[col] for col in existing_columns if col in column_names_ar}
+        df = df.rename(columns=rename_dict)
+        
+        output = io.BytesIO()
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            df.to_excel(writer, index=False, sheet_name='Students')
+        output.seek(0)
+        
+        filename = f'students_export_{datetime.now().strftime("%Y%m%d_%H%M%S")}.xlsx'
+        return send_file(output, mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', as_attachment=True, download_name=filename)
+    except Exception as e:
+        print(f"❌ خطأ في تصدير البيانات: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"success": False, "error": str(e)}), 500
+
+@app.route('/api/create_user', methods=["POST"])
+@login_required
+def api_create_user():
     if session.get('role') not in ['admin', 'super_admin']:
         return jsonify({"success": False, "message": "غير مصرح"}), 403
     
     data = request.get_json()
+    username = data.get('username', '').strip()
+    password = data.get('password', '')
+    role = data.get('role', 'user')
+    license_days = data.get('license_days', None)
     
-    notification_type = data.get('notification_type')  # 'absent', 'late', 'all'
-    recipient_type = data.get('recipient_type', 'both')  # 'student', 'parent', 'both'
+    if not username or not password:
+        return jsonify({"success": False, "message": "الرجاء إدخال اسم المستخدم وكلمة المرور"})
+    
+    if len(password) < 4:
+        return jsonify({"success": False, "message": "كلمة المرور يجب أن تكون 4 أحرف على الأقل"})
+    
+    success, message = create_user(username, password, role, license_days)
+    return jsonify({"success": success, "message": message})
+
+@app.route('/api/update_user/<username>', methods=["PUT"])
+@login_required
+def api_update_user(username):
+    if session.get('role') not in ['admin', 'super_admin']:
+        return jsonify({"success": False, "message": "غير مصرح"}), 403
+    
+    data = request.get_json()
+    role = data.get('role')
+    password = data.get('password')
+    license_days = data.get('license_days', None)
+    
+    success, message = update_user(username, role, password, license_days)
+    return jsonify({"success": success, "message": message})
+
+@app.route('/api/delete_user/<username>', methods=["DELETE"])
+@login_required
+def api_delete_user(username):
+    if session.get('role') not in ['admin', 'super_admin']:
+        return jsonify({"success": False, "message": "غير مصرح"}), 403
+    
+    success, message = delete_user(username)
+    return jsonify({"success": success, "message": message})
+
+@app.route('/api/send_attendance_notifications', methods=['POST'])
+@login_required
+def send_attendance_notifications_api():
+    """API لإرسال إشعارات للطلاب حسب حالتهم (غائب/متأخر)"""
+    if session.get('role') not in ['admin', 'super_admin']:
+        return jsonify({"success": False, "message": "غير مصرح"}), 403
+    
+    data = request.get_json()
+    notification_type = data.get('notification_type')
+    recipient_type = data.get('recipient_type', 'both')
     grade = data.get('grade')
     class_val = data.get('class')
     student_id = data.get('student_id')
@@ -3054,33 +1634,25 @@ def send_attendance_notifications_api():
     date = data.get('date', datetime.now().strftime('%Y-%m-%d'))
     
     if not notification_type:
-        return jsonify({"success": False, "message": "الرجاء تحديد نوع الإشعار (غائب/متأخر)"})
+        return jsonify({"success": False, "message": "الرجاء تحديد نوع الإشعار"})
     
-    # جلب الطلاب حسب الفلتر
     students = get_students_by_filter(grade, class_val, student_id)
-    
     if not students:
         return jsonify({"success": False, "message": "لا يوجد طلاب مطابقين للفلتر"})
     
-    # جلب حالة الحضور للطلاب
     students_status = get_attendance_status_for_students(students, date)
     
-    # تصفية حسب نوع الإشعار
     if notification_type == 'absent':
         filtered = [s for s in students_status if s['status'] == 'غائب']
     elif notification_type == 'late':
         filtered = [s for s in students_status if s['status'] == 'متأخر']
-    else:  # 'all'
+    else:
         filtered = students_status
     
     if not filtered:
         status_text = {'absent': 'غائبين', 'late': 'متأخرين', 'all': 'جميع الطلاب'}
-        return jsonify({
-            "success": False, 
-            "message": f"لا يوجد {status_text.get(notification_type, 'طلاب')} في الفئة المحددة"
-        })
+        return jsonify({"success": False, "message": f"لا يوجد {status_text.get(notification_type, 'طلاب')} في الفئة المحددة"})
     
-    # إرسال الإشعارات
     sent_count, errors, results = send_attendance_notifications(filtered, recipient_type, custom_message)
     
     return jsonify({
@@ -3092,13 +1664,10 @@ def send_attendance_notifications_api():
         "results": results
     })
 
-
 @app.route('/api/get_students_with_status', methods=['POST'])
 @login_required
 def get_students_with_status():
-    """
-    API لجلب الطلاب مع حالة الحضور في تاريخ محدد
-    """
+    """API لجلب الطلاب مع حالة الحضور في تاريخ محدد"""
     if session.get('role') not in ['admin', 'super_admin']:
         return jsonify({"success": False, "message": "غير مصرح"}), 403
     
@@ -3122,6 +1691,598 @@ def get_students_with_status():
         }
     })
 
+@app.route('/api/create_backup')
+@license_required
+def manual_backup():
+    if session.get('role') not in ['admin', 'super_admin']:
+        return jsonify({"success": False, "message": "غير مصرح"})
+    success, message = create_backup()
+    return jsonify({"success": success, "message": message})
+
+@app.route('/api/list_backups')
+@license_required
+def list_backups():
+    if session.get('role') not in ['admin', 'super_admin']:
+        return jsonify({"success": False, "message": "غير مصرح"})
+    backup_dir = "backups"
+    if not os.path.exists(backup_dir):
+        return jsonify({"success": True, "backups": []})
+    files = []
+    for file in os.listdir(backup_dir):
+        if file.endswith('.xlsx'):
+            stat = os.stat(os.path.join(backup_dir, file))
+            files.append({
+                'name': file,
+                'size': stat.st_size,
+                'size_kb': round(stat.st_size / 1024, 2),
+                'date': datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%d %H:%M:%S")
+            })
+    files.sort(key=lambda x: x['date'], reverse=True)
+    return jsonify({"success": True, "backups": files})
+
+@app.route('/api/download_backup/<filename>')
+@license_required
+def download_backup(filename):
+    if session.get('role') not in ['admin', 'super_admin']:
+        return jsonify({"success": False, "message": "غير مصرح"})
+    backup_path = os.path.join("backups", filename)
+    if os.path.exists(backup_path):
+        return send_file(backup_path, as_attachment=True)
+    return jsonify({"success": False, "message": "الملف غير موجود"})
+
+# ============== دوال الإشعارات ==============
+
+def get_students_by_filter(grade=None, class_val=None, student_id=None):
+    """جلب الطلاب حسب الفلتر المحدد"""
+    students = get_live_students()
+    if student_id:
+        student = next((s for s in students if s.get('student_id') == student_id), None)
+        return [student] if student else []
+    filtered = students
+    if grade:
+        filtered = [s for s in filtered if s.get('grade') == grade]
+    if class_val:
+        filtered = [s for s in filtered if s.get('class') == class_val]
+    return filtered
+
+def get_attendance_status_for_students(students, date=None):
+    """الحصول على حالة الحضور للطلاب في تاريخ محدد"""
+    if not date:
+        date = datetime.now().strftime('%Y-%m-%d')
+    attendance = get_live_attendance()
+    today_records = [r for r in attendance if r.get('date') == date]
+    result = []
+    for student in students:
+        record = next((r for r in today_records if r.get('student_id') == student.get('student_id')), None)
+        result.append({
+            'student': student,
+            'status': record.get('status') if record else 'غائب',
+            'time': record.get('time') if record else '-',
+            'date': date
+        })
+    return result
+
+def send_attendance_notifications(students_status, recipient_type='both', custom_message=None):
+    """إرسال إشعارات للطلاب حسب حالتهم"""
+    sent_count = 0
+    errors = []
+    results = []
+    for item in students_status:
+        student = item['student']
+        status = item['status']
+        student_name = student.get('name', '')
+        student_email = student.get('email', '')
+        parent_email = student.get('parent_email', '')
+        recipients = []
+        if recipient_type in ['student', 'both'] and student_email:
+            recipients.append(student_email)
+        if recipient_type in ['parent', 'both'] and parent_email:
+            recipients.append(parent_email)
+        if not recipients:
+            errors.append(f"{student_name}: لا يوجد بريد إلكتروني مسجل")
+            continue
+        for email in recipients:
+            success, message = send_notification_email_advanced(
+                email, student_name, status, 
+                item.get('time'), item.get('date'), custom_message
+            )
+            if success:
+                sent_count += 1
+            else:
+                errors.append(f"{email}: {message}")
+        results.append({
+            'student': student_name,
+            'status': status,
+            'sent_to': len(recipients)
+        })
+    return sent_count, errors, results
+
+def send_notification_email_advanced(recipient_email, student_name, status, time=None, date=None, custom_message=None):
+    """إرسال إشعار بريدي مخصص حسب حالة الطالب"""
+    try:
+        if not app.config['MAIL_PASSWORD']:
+            return False, "البريد الإلكتروني غير مضبوط"
+        if not recipient_email or '@' not in recipient_email:
+            return False, "البريد الإلكتروني غير صالح"
+        
+        if status == 'غائب' or status == 'absent':
+            title = "❌ تنبيه: غياب الطالب"
+            status_emoji = '❌'
+            status_text = 'غائب'
+            status_color = '#e53e3e'
+            default_message = "نأسف لإبلاغكم بأن الطالب لم يحضر اليوم. يرجى متابعة أسباب الغياب."
+        elif status == 'متأخر' or status == 'late':
+            title = "⏰ تنبيه: تأخر الطالب"
+            status_emoji = '⏰'
+            status_text = 'متأخر عن الحضور'
+            status_color = '#ed8936'
+            default_message = "نحيطكم علماً بأن الطالب قد حضر متأخراً اليوم. يرجى التنبيه على أهمية الالتزام بالمواعيد."
+        else:
+            title = "✅ إشعار حضور"
+            status_emoji = '✅'
+            status_text = 'حاضر في الوقت المحدد'
+            status_color = '#28a745'
+            default_message = "تم تسجيل حضور الطالب اليوم في الوقت المحدد. نشكركم على متابعتكم."
+        
+        if not time:
+            time = datetime.now().strftime('%I:%M %p')
+        if not date:
+            date = datetime.now().strftime('%Y-%m-%d')
+        
+        message_body = custom_message or default_message
+        
+        html_body = f"""
+        <div style="font-family: 'Cairo', Arial, sans-serif; direction: rtl; max-width: 600px; margin: 0 auto; padding: 20px; background: #f7fafc; border-radius: 16px;">
+            <div style="background: linear-gradient(135deg, #667eea, #764ba2); padding: 25px; border-radius: 12px; text-align: center; color: white;">
+                <h2 style="margin: 0; font-size: 24px;">🎓 {title}</h2>
+                <p style="margin: 5px 0 0; opacity: 0.9;">نظام حضور الطلاب الذكي</p>
+            </div>
+            <div style="background: white; padding: 25px; border-radius: 12px; margin-top: 20px; box-shadow: 0 4px 15px rgba(0,0,0,0.05);">
+                <div style="background: #f7fafc; padding: 15px; border-radius: 10px; margin-bottom: 20px;">
+                    <p style="margin: 8px 0; font-size: 16px;"><strong>👤 الطالب:</strong> {student_name}</p>
+                    <p style="margin: 8px 0;"><strong>📊 الحالة:</strong> <span style="color: {status_color}; font-weight: bold;">{status_emoji} {status_text}</span></p>
+                    <p style="margin: 8px 0;"><strong>🕐 وقت التسجيل:</strong> {time}</p>
+                    <p style="margin: 8px 0;"><strong>📅 التاريخ:</strong> {date}</p>
+                </div>
+                <div style="background: #fef5e7; padding: 15px; border-radius: 10px; margin-bottom: 20px; border-right: 4px solid #ed8936;">
+                    <p style="margin: 0; font-size: 15px; line-height: 1.8;">{message_body}</p>
+                </div>
+                <p style="color: #718096; font-size: 14px; border-top: 1px solid #e2e8f0; padding-top: 15px; margin-top: 15px;">
+                    📌 تم إرسال هذا الإشعار تلقائياً من نظام حضور الطلاب.
+                </p>
+            </div>
+            <div style="text-align: center; margin-top: 20px; font-size: 12px; color: #a0aec0;">
+                <p>© 2026 نظام حضور الطلاب الذكي | جميع الحقوق محفوظة</p>
+            </div>
+        </div>
+        """
+        subject = f"{title} - {student_name} - {date}"
+        msg = Message(subject=subject, recipients=[recipient_email], html=html_body, sender=app.config['MAIL_DEFAULT_SENDER'])
+        mail.send(msg)
+        return True, "تم الإرسال"
+    except Exception as e:
+        print(f"❌ خطأ في إرسال البريد: {e}")
+        return False, str(e)
+
+# ============== إعادة توجيه الصفحات القديمة ==============
+@app.route("/reports")
+@license_required
+def reports_redirect():
+    return redirect(url_for('general_reports'))
+
+@app.route("/dashboard")
+@license_required
+def dashboard_redirect():
+    return redirect(url_for('charts'))
+
+@app.route("/reports_dashboard")
+@license_required
+def reports_dashboard_redirect():
+    return redirect(url_for('general_reports'))
+
+@app.route("/api/check_license_status")
+@login_required
+def check_license_status():
+    username = session.get('username')
+    days_remaining = get_user_license_days_remaining(username)
+    return jsonify({
+        'success': True,
+        'has_license': days_remaining > 0 or days_remaining == -1,
+        'days_remaining': days_remaining,
+        'is_unlimited': days_remaining == -1,
+        'username': username,
+        'role': session.get('role')
+    })
+
+@app.route("/api/user_license_days")
+@login_required
+def api_user_license_days():
+    username = session.get('username')
+    days_remaining = get_user_license_days_remaining(username)
+    return jsonify({
+        'success': True,
+        'days_remaining': days_remaining,
+        'is_unlimited': days_remaining == -1
+    })
+
+@app.route("/api/remaining_trials")
+@login_required
+def api_remaining_trials():
+    username = session.get('username')
+    days_remaining = get_user_license_days_remaining(username)
+    if days_remaining == -1:
+        return jsonify({"success": True, "remaining": "غير محدود", "is_unlimited": True})
+    return jsonify({"success": True, "remaining": days_remaining if days_remaining > 0 else 0})
+
+@app.route('/admin/upload_students', methods=['GET', 'POST'])
+@login_required
+def admin_upload_students():
+    if session.get('role') not in ['admin', 'super_admin']:
+        return redirect(url_for('home'))
+    
+    if request.method == 'POST':
+        if 'file' not in request.files:
+            return render_template('admin_upload.html', error="الرجاء اختيار ملف للرفع")
+        file = request.files['file']
+        if file.filename == '':
+            return render_template('admin_upload.html', error="الرجاء اختيار ملف للرفع")
+        if not allowed_file(file.filename):
+            return render_template('admin_upload.html', error="نوع الملف غير مسموح. يرجى رفع ملف Excel (.xlsx, .xls) أو CSV")
+        try:
+            file_content = file.read()
+            result = process_excel_file(file_content, file.filename)
+            if not result['success']:
+                return render_template('admin_upload.html', error=result.get('error', 'حدث خطأ في معالجة الملف'), found_columns=result.get('found_columns'))
+            if request.form.get('confirm') != 'yes':
+                old_students = get_live_students()
+                return render_template('admin_upload.html', 
+                                     preview=result['students'][:10],
+                                     total_students=result['success_count'],
+                                     old_count=len(old_students),
+                                     errors=result['errors'],
+                                     filename=file.filename,
+                                     confirm_required=True)
+            supabase.table("students").delete().neq("student_id", "").execute()
+            students_list = result['students']
+            batch_size = 50
+            batches = [students_list[i:i+batch_size] for i in range(0, len(students_list), batch_size)]
+            for batch in batches:
+                supabase.table("students").insert(batch).execute()
+            return render_template('admin_upload.html', success=True, total_uploaded=len(students_list), filename=file.filename)
+        except Exception as e:
+            return render_template('admin_upload.html', error=f"حدث خطأ: {str(e)}")
+    return render_template('admin_upload.html')
+
+def allowed_file(filename):
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in {'xlsx', 'xls', 'csv'}
+
+def process_excel_file(file_content, filename):
+    try:
+        if filename.endswith('.csv'):
+            df = pd.read_csv(io.BytesIO(file_content), encoding='utf-8-sig')
+        else:
+            df = pd.read_excel(io.BytesIO(file_content))
+        df.columns = df.columns.str.lower().str.strip()
+        id_column = None
+        name_column = None
+        grade_column = None
+        class_column = None
+        phone_column = None
+        parent_phone_column = None
+        id_names = ['student_id', 'id', 'رقم الطالب', 'studentid', 'الرقم', 'الرقم الطلابي']
+        name_names = ['name', 'student_name', 'اسم الطالب', 'studentname', 'الاسم', 'student name']
+        grade_names = ['grade', 'الصف', 'class_grade', 'المرحلة', 'الصف الدراسي']
+        class_names = ['class', 'الشعبة', 'class_name', 'الفصل', 'division', 'شعبة']
+        phone_names = ['phone', 'student_phone', 'هاتف الطالب', 'mobile', 'جوال']
+        parent_phone_names = ['parent_phone', 'guardian_phone', 'هاتف ولي الأمر', 'parent_mobile', 'ولي الأمر']
+        for col in df.columns:
+            if any(name in col for name in id_names):
+                id_column = col
+            if any(name in col for name in name_names):
+                name_column = col
+            if any(name in col for name in grade_names):
+                grade_column = col
+            if any(name in col for name in class_names):
+                class_column = col
+            if any(name in col for name in phone_names):
+                phone_column = col
+            if any(name in col for name in parent_phone_names):
+                parent_phone_column = col
+        if id_column is None or name_column is None:
+            return {'success': False, 'error': 'لم يتم العثور على الأعمدة المطلوبة (رقم الطالب واسم الطالب)', 'found_columns': list(df.columns)}
+        students = []
+        errors = []
+        success_count = 0
+        for index, row in df.iterrows():
+            student_id = str(row.get(id_column, '')).strip()
+            name = str(row.get(name_column, '')).strip()
+            if not student_id or student_id == 'nan' or not name or name == 'nan':
+                continue
+            cleaned_id = clean_student_id(student_id)
+            if not cleaned_id or not name:
+                errors.append(f"الصف {index + 2}: بيانات غير صالحة (الرقم: {student_id}, الاسم: {name})")
+                continue
+            student_data = {
+                'student_id': cleaned_id,
+                'name': name,
+                'grade': str(row.get(grade_column, '')).strip() if grade_column else 'الأول الثانوي',
+                'class': str(row.get(class_column, '')).strip() if class_column else '1',
+                'phone': str(row.get(phone_column, '')).strip() if phone_column else '',
+                'parent_phone': str(row.get(parent_phone_column, '')).strip() if parent_phone_column else ''
+            }
+            for key, value in student_data.items():
+                if value == 'nan' or value == 'None' or value == '':
+                    student_data[key] = ''
+            students.append(student_data)
+            success_count += 1
+        return {'success': True, 'students': students, 'success_count': success_count, 'errors': errors, 'total_rows': len(df), 'id_column': id_column, 'name_column': name_column, 'grade_column': grade_column, 'class_column': class_column}
+    except Exception as e:
+        return {'success': False, 'error': f'خطأ في معالجة الملف: {str(e)}'}
+
+# ============== دوال API الإضافية (التقارير، الحضور، إلخ) ==============
+@app.route("/api/attendance_summary")
+@license_required
+def attendance_summary():
+    today = get_saudi_time().strftime("%Y-%m-%d")
+    students = get_live_students()
+    attendance = get_live_attendance()
+    total = len(students)
+    today_records = [r for r in attendance if r.get('date') == today]
+    present = len([r for r in today_records if r.get('status') == 'حاضر في الوقت'])
+    late = len([r for r in today_records if r.get('status') == 'متأخر'])
+    absent = total - (present + late)
+    percentage = round((present + late) / total * 100, 1) if total > 0 else 0
+    response = make_response(jsonify({
+        "success": True,
+        "total_students": total,
+        "present": present,
+        "late": late,
+        "absent": absent if absent > 0 else 0,
+        "percentage": percentage,
+        "date": today
+    }))
+    response.headers['Content-Type'] = 'application/json; charset=utf-8'
+    return response
+
+@app.route("/api/attendance_details/<date>")
+@license_required
+def attendance_details(date):
+    students = get_live_students()
+    attendance = get_live_attendance()
+    result = []
+    for student in students:
+        record = None
+        for r in attendance:
+            if r.get('student_id') == student.get('student_id') and r.get('date') == date:
+                record = r
+                break
+        result.append({
+            'student_id': student.get('student_id'),
+            'student_name': student.get('name'),
+            'grade': student.get('grade'),
+            'class': student.get('class'),
+            'status': record.get('status') if record else 'غائب',
+            'time': record.get('time') if record else '-'
+        })
+    response = make_response(jsonify({"success": True, "data": result}))
+    response.headers['Content-Type'] = 'application/json; charset=utf-8'
+    return response
+
+@app.route("/api/students_list")
+@license_required
+def students_list():
+    students = get_live_students()
+    response = make_response(jsonify({"success": True, "data": students}))
+    response.headers['Content-Type'] = 'application/json; charset=utf-8'
+    return response
+
+@app.route("/api/dashboard_stats")
+@license_required
+def dashboard_stats():
+    today = get_saudi_time().strftime("%Y-%m-%d")
+    students = get_live_students()
+    attendance = get_live_attendance()
+    total = len(students)
+    today_records = [r for r in attendance if r.get('date') == today]
+    present = len([r for r in today_records if r.get('status') == 'حاضر في الوقت'])
+    late = len([r for r in today_records if r.get('status') == 'متأخر'])
+    absent = total - (present + late)
+    percentage = round((present + late) / total * 100, 1) if total > 0 else 0
+    response = make_response(jsonify({
+        "success": True,
+        "percentage": percentage,
+        "present_today": present + late,
+        "present": present,
+        "late": late,
+        "absent": absent,
+        "total_students": total,
+        "total_records": len(attendance)
+    }))
+    response.headers['Content-Type'] = 'application/json; charset=utf-8'
+    return response
+
+@app.route("/api/top_students")
+@license_required
+def top_students():
+    attendance = get_live_attendance()
+    counts = {}
+    for r in attendance:
+        if r.get('status') in ['حاضر في الوقت', 'متأخر']:
+            name = r.get('student_name')
+            counts[name] = counts.get(name, 0) + 1
+    sorted_students = sorted(counts.items(), key=lambda x: x[1], reverse=True)[:10]
+    response = make_response(jsonify({"success": True, "data": [{"name": n, "count": c} for n, c in sorted_students]}))
+    response.headers['Content-Type'] = 'application/json; charset=utf-8'
+    return response
+
+@app.route("/api/attendance_trend")
+@license_required
+def attendance_trend():
+    year = int(request.args.get('year', get_saudi_time().year))
+    attendance = get_live_attendance()
+    def get_month_name(month):
+        months = {1: 'يناير', 2: 'فبراير', 3: 'مارس', 4: 'أبريل', 5: 'مايو', 6: 'يونيو',
+                  7: 'يوليو', 8: 'أغسطس', 9: 'سبتمبر', 10: 'أكتوبر', 11: 'نوفمبر', 12: 'ديسمبر'}
+        return months.get(month, str(month))
+    monthly_data = []
+    for month in range(1, 13):
+        month_records = [r for r in attendance if r.get('date', '').startswith(f"{year}-{month:02d}")]
+        present = len([r for r in month_records if r.get('status') == 'حاضر في الوقت'])
+        late = len([r for r in month_records if r.get('status') == 'متأخر'])
+        monthly_data.append({'month': get_month_name(month), 'present': present, 'late': late, 'total': present + late})
+    return jsonify({"success": True, "year": year, "data": monthly_data})
+
+@app.route("/api/weekly_attendance")
+@license_required
+def weekly_attendance():
+    attendance = get_live_attendance()
+    weekdays = ['الأحد', 'الإثنين', 'الثلاثاء', 'الأربعاء', 'الخميس']
+    day_stats = {day: {'present': 0, 'late': 0, 'total': 0} for day in weekdays}
+    for record in attendance:
+        try:
+            record_date = datetime.strptime(record.get('date', ''), "%Y-%m-%d")
+            weekday = record_date.weekday()
+            if weekday in [4, 5]:
+                continue
+            day_name = weekdays[weekday]
+            if record.get('status') == 'حاضر في الوقت':
+                day_stats[day_name]['present'] += 1
+            elif record.get('status') == 'متأخر':
+                day_stats[day_name]['late'] += 1
+            day_stats[day_name]['total'] += 1
+        except:
+            pass
+    result = []
+    for day in weekdays:
+        total = day_stats[day]['total']
+        result.append({
+            'day': day,
+            'attendance_rate': round((day_stats[day]['present'] + day_stats[day]['late']) / max(total, 1) * 100, 2) if total > 0 else 0,
+            'present': day_stats[day]['present'],
+            'late': day_stats[day]['late']
+        })
+    return jsonify({"success": True, "data": result})
+
+@app.route("/api/monthly_report")
+@license_required
+def monthly_report():
+    year = int(request.args.get('year', get_saudi_time().year))
+    month = int(request.args.get('month', get_saudi_time().month))
+    students = get_live_students()
+    attendance = get_live_attendance()
+    days_in_month = monthrange(year, month)[1]
+    daily_stats = []
+    total_present = 0
+    total_late = 0
+    total_absent = 0
+    total_days_with_attendance = 0
+    def get_month_name(month):
+        months = {1: 'يناير', 2: 'فبراير', 3: 'مارس', 4: 'أبريل', 5: 'مايو', 6: 'يونيو',
+                  7: 'يوليو', 8: 'أغسطس', 9: 'سبتمبر', 10: 'أكتوبر', 11: 'نوفمبر', 12: 'ديسمبر'}
+        return months.get(month, str(month))
+    for day in range(1, days_in_month + 1):
+        date_str = f"{year}-{month:02d}-{day:02d}"
+        day_records = [r for r in attendance if r.get('date') == date_str]
+        present = len([r for r in day_records if r.get('status') == 'حاضر في الوقت'])
+        late = len([r for r in day_records if r.get('status') == 'متأخر'])
+        absent = len(students) - (present + late)
+        total_present += present
+        total_late += late
+        total_absent += absent
+        if present + late > 0:
+            total_days_with_attendance += 1
+        daily_stats.append({
+            'day': day,
+            'date': date_str,
+            'present': present,
+            'late': late,
+            'absent': absent if absent > 0 else 0,
+            'percentage': round((present + late) / len(students) * 100, 2) if len(students) > 0 else 0
+        })
+    avg_attendance = round((total_present + total_late) / (days_in_month * len(students)) * 100, 2) if len(students) > 0 else 0
+    if request.args.get('export') == 'excel':
+        df = pd.DataFrame(daily_stats)
+        filename = f"monthly_report_{year}_{month}.xlsx"
+        df.to_excel(filename, index=False, engine='openpyxl')
+        return send_file(filename, as_attachment=True)
+    response = make_response(jsonify({
+        "success": True,
+        "year": year,
+        "month": month,
+        "month_name": get_month_name(month),
+        "days_in_month": days_in_month,
+        "total_students": len(students),
+        "summary": {
+            "total_present": total_present,
+            "total_late": total_late,
+            "total_absent": total_absent,
+            "avg_attendance_rate": avg_attendance,
+            "days_with_attendance": total_days_with_attendance,
+            "best_day": max(daily_stats, key=lambda x: x['present'] + x['late']) if daily_stats else None,
+            "worst_day": min(daily_stats, key=lambda x: x['present'] + x['late']) if daily_stats else None
+        },
+        "daily_stats": daily_stats
+    }))
+    response.headers['Content-Type'] = 'application/json; charset=utf-8'
+    return response
+
+# ============== مسارات إضافية (الصفحات القديمة) ==============
+@app.route('/offline')
+def offline_page():
+    return render_template('offline.html')
+
+@app.route('/trial_info')
+def trial_info():
+    if 'logged_in' in session and 'username' in session:
+        username = session.get('username')
+        days_remaining = get_user_license_days_remaining(username)
+        return render_template('trial_info.html', remaining=days_remaining if days_remaining > 0 else 0)
+    return render_template('trial_info.html', remaining=0)
+
+@app.route('/')
+def landing():
+    if 'logged_in' in session:
+        return redirect(url_for('home'))
+    return render_template('landing.html')
+
+@app.route('/api/export_today_excel')
+@license_required
+def export_today_excel():
+    today = get_saudi_time().strftime("%Y-%m-%d")
+    filename = f"attendance_{today}.xlsx"
+    students = get_live_students()
+    attendance = get_live_attendance()
+    result = []
+    for student in students:
+        record = None
+        for r in attendance:
+            if r.get('student_id') == student.get('student_id') and r.get('date') == today:
+                record = r
+                break
+        result.append({
+            'رقم الطالب': student.get('student_id'),
+            'اسم الطالب': student.get('name'),
+            'الصف': student.get('grade'),
+            'الشعبة': student.get('class'),
+            'وقت التسجيل': record.get('time') if record else '-',
+            'الحالة': record.get('status') if record else 'غائب'
+        })
+    df = pd.DataFrame(result)
+    df.to_excel(filename, index=False, engine='openpyxl')
+    return send_file(filename, as_attachment=True)
+
+@app.route("/test_supabase")
+def test_supabase():
+    try:
+        result = supabase.table("students").select("*").execute()
+        return {"success": True, "rows": len(result.data)}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+@app.route("/health")
+def health():
+    return {"status": "ok", "database": "supabase"}
+
 # ============== تشغيل النسخ الاحتياطي التلقائي في الخلفية ==============
 backup_thread = threading.Thread(target=scheduled_backup, daemon=True)
 backup_thread.start()
@@ -3130,7 +2291,7 @@ backup_thread.start()
 setup_rls_policies()
 
 # ==================================================
-# 🔧 كود تأكيد صلاحيات المدير العام - للإصلاح الفوري
+# 🔧 كود تأكيد صلاحيات المدير العام
 # ==================================================
 def ensure_super_admin():
     """يتأكد من أن المستخدم Taha_Mohamed لديه صلاحية super_admin"""
@@ -3149,10 +2310,9 @@ def ensure_super_admin():
     except Exception as e:
         print(f"❌ خطأ في ensure_super_admin: {e}")
 
-# تشغيل الدالة عند بدء التطبيق
 ensure_super_admin()
 
-# ============== API إرسال واتساب تجريبي ==============
+# ============== API إرسال واتساب تجريبي (للتوافق) ==============
 @app.route('/api/send_whatsapp_test', methods=['POST'])
 @login_required
 def send_whatsapp_test():
@@ -3165,7 +2325,6 @@ def send_whatsapp_test():
     student_id = data.get('student_id')
     custom_message = data.get('message', '')
     
-    # إذا تم إرسال student_id، جلب رقم الطالب
     if student_id:
         students = get_live_students()
         student = next((s for s in students if s.get('student_id') == student_id), None)
@@ -3178,55 +2337,266 @@ def send_whatsapp_test():
     if not phone:
         return jsonify({"success": False, "message": "الرجاء إدخال رقم الجوال"})
     
-    # تنظيف رقم الجوال
     phone = re.sub(r'[^0-9+]', '', phone)
     if not phone.startswith('+'):
         phone = '+' + phone
     
-    # التحقق من تفعيل Twilio
     if not twilio_enabled:
         return jsonify({"success": False, "message": "خدمة واتساب غير مفعلة. يرجى تكوين Twilio."})
     
     try:
-        # إرسال رسالة واتساب
         message_body = custom_message or f"""
 📢 *نظام حضور الطلاب الذكي*
-
 مرحباً بك في نظام حضور الطلاب.
 تم إرسال هذه الرسالة كاختبار لخدمة واتساب.
-
 👤 *اسم المستخدم:* {session.get('username')}
 🕐 *الوقت:* {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
-
 شكراً لاستخدامك نظام حضور الطلاب.
 """
-        
         if student_id and student_name:
             message_body = f"""
 🎓 *نظام حضور الطلاب*
-
 👤 *الطالب:* {student_name}
 📱 *رقم الجوال:* {phone}
 🕐 *الوقت:* {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
-
 تم إرسال هذه الرسالة كاختبار لخدمة واتساب.
 """
-        
         message = twilio_client.messages.create(
             body=message_body,
             from_=TWILIO_WHATSAPP_NUMBER,
             to=f"whatsapp:{phone}"
         )
-        
-        return jsonify({
-            "success": True, 
-            "message": f"تم إرسال الرسالة بنجاح إلى {phone}",
-            "sid": message.sid
-        })
-        
+        return jsonify({"success": True, "message": f"تم إرسال الرسالة بنجاح إلى {phone}", "sid": message.sid})
     except Exception as e:
         print(f"❌ خطأ في إرسال واتساب: {e}")
         return jsonify({"success": False, "message": f"فشل الإرسال: {str(e)}"})
+
+@app.route("/api/register", methods=["POST"])
+@license_required
+def register_attendance():
+    try:
+        can_register, error_message = can_register_attendance()
+        if not can_register:
+            return jsonify({"success": False, "message": error_message})
+        data = request.get_json()
+        student_id = str(data.get("student_id", "")).strip()
+        if not student_id:
+            return jsonify({"success": False, "message": "الرجاء إدخال رقم الطالب"})
+        students = get_live_students()
+        student = None
+        for s in students:
+            if str(s.get('student_id', '')) == student_id:
+                student = s
+                break
+        if not student:
+            return jsonify({"success": False, "message": f"الطالب {student_id} غير موجود"})
+        status, current_time = get_attendance_status()
+        now = get_saudi_time()
+        current_date = now.strftime("%Y-%m-%d")
+        existing = supabase.table("attendance").select("*").eq("student_id", student_id).eq("date", current_date).execute()
+        if existing.data:
+            return jsonify({"success": False, "message": f"⚠️ {student.get('name')} مسجل مسبقاً اليوم"})
+        new_record = {
+            'student_id': student_id,
+            'student_name': str(student.get('name', '')),
+            'grade': str(student.get('grade', '')),
+            'class': str(student.get('class', '')),
+            'date': current_date,
+            'time': current_time,
+            'status': status,
+            'timestamp': now.isoformat()
+        }
+        if save_attendance(new_record):
+            parent_phone = student.get('parent_phone', '')
+            if parent_phone and len(parent_phone) > 5 and twilio_enabled:
+                send_whatsapp_message(parent_phone, student.get('name', ''), status, current_time)
+            return jsonify({
+                "success": True,
+                "message": f"✅ تم تسجيل حضور {student.get('name')} - {status} الساعة {current_time}",
+                "student_name": str(student.get('name', '')),
+                "student_grade": str(student.get('grade', '')),
+                "student_class": str(student.get('class', '')),
+                "time": current_time,
+                "date": current_date,
+                "status": status
+            })
+        else:
+            return jsonify({"success": False, "message": "فشل حفظ البيانات"})
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)})
+
+@app.route("/api/set_language/<lang>")
+@license_required
+def set_language_route(lang):
+    if lang in ['ar', 'en']:
+        session['language'] = lang
+    return redirect(request.referrer or url_for('home'))
+
+@app.route('/debug_student_ids')
+@login_required
+def debug_student_ids():
+    if session.get('role') not in ['admin', 'super_admin']:
+        return jsonify({"error": "غير مصرح"}), 403
+    students = get_live_students()
+    results = []
+    for student in students[:50]:
+        original_id = student.get('student_id', '')
+        raw_repr = repr(original_id)
+        length = len(original_id)
+        cleaned = clean_student_id(original_id)
+        results.append({'name': student.get('name'), 'original': original_id, 'raw_repr': raw_repr, 'length': length, 'cleaned': cleaned, 'is_different': original_id != cleaned})
+    html = """
+    <!DOCTYPE html>
+    <html dir="rtl" lang="ar">
+    <head><meta charset="UTF-8"><title>فحص أرقام الطلاب</title>
+    <style>body { font-family: Arial, sans-serif; margin: 20px; background: #f5f5f5; }
+    h1 { color: #333; text-align: center; }
+    .summary { background: white; padding: 15px; border-radius: 10px; margin-bottom: 20px; }
+    table { width: 100%; border-collapse: collapse; background: white; margin-top: 20px; }
+    th, td { border: 1px solid #ddd; padding: 12px; text-align: center; }
+    th { background: #667eea; color: white; }
+    .different { background: #ffeb3b !important; }
+    .badge-clean { background: #4caf50; color: white; padding: 3px 8px; border-radius: 5px; }
+    .badge-dirty { background: #ff9800; color: white; padding: 3px 8px; border-radius: 5px; }
+    button { background: #667eea; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; margin: 10px; }
+    </style></head><body>
+    <h1>🔍 فحص أرقام الطلاب</h1>
+    <div class="summary">
+    <p><strong>📊 ملخص:</strong></p>
+    <p>عدد الطلاب المعروضين: """ + str(len(results)) + """</p>
+    <p>عدد الأرقام غير النظيفة: """ + str(sum(1 for r in results if r['is_different'])) + """</p>
+    <button onclick="window.location.href='/admin/clean_student_ids'">🧹 تنظيف البيانات الآن</button>
+    <button onclick="window.location.href='/'">🏠 العودة إلى الرئيسية</button>
+    </div>
+    <table><thead><tr><th>اسم الطالب</th><th>الرقم الأصلي</th><th>التمثيل الخام (raw)</th><th>الطول</th><th>بعد التنظيف</th><th>الحالة</th></tr></thead><tbody>
+    """
+    for r in results:
+        row_class = 'class="different"' if r['is_different'] else ''
+        badge = '<span class="badge-dirty">🟠 غير نظيف</span>' if r['is_different'] else '<span class="badge-clean">✅ نظيف</span>'
+        html += f"""<tr {row_class}><td>{r['name']}</td><td>{r['original']}</td><td><code style="font-size:11px">{r['raw_repr']}</code></td><td>{r['length']}</td><td>{r['cleaned']}</td><td>{badge}</td></tr>"""
+    html += """</tbody></table><p style="text-align:center; margin-top:20px;">💡 <strong>ملاحظة:</strong> الأرقام باللون الأصفر تحتاج إلى تنظيف</p></body></html>"""
+    return html
+
+@app.route('/admin/clean_student_ids')
+@login_required
+def admin_clean_student_ids():
+    if session.get('role') not in ['admin', 'super_admin']:
+        return jsonify({"error": "غير مصرح"}), 403
+    students = get_live_students()
+    cleaned_count = 0
+    changes = []
+    for student in students:
+        old_id = student.get('student_id', '')
+        new_id = clean_student_id(old_id)
+        if old_id != new_id:
+            try:
+                supabase.table("students").update({"student_id": new_id}).eq("student_id", old_id).execute()
+                cleaned_count += 1
+                changes.append({'name': student.get('name'), 'old': repr(old_id), 'new': new_id})
+                print(f"✅ تم تنظيف: {repr(old_id)} -> {new_id}")
+            except Exception as e:
+                print(f"❌ خطأ في تنظيف {student.get('name')}: {e}")
+    html = f"""
+    <!DOCTYPE html>
+    <html dir="rtl" lang="ar">
+    <head><meta charset="UTF-8"><title>تنظيف أرقام الطلاب</title>
+    <style>body {{ font-family: Arial, sans-serif; margin: 20px; background: #f5f5f5; text-align: center; }}
+    .success {{ background: #4caf50; color: white; padding: 20px; border-radius: 10px; margin: 20px; }}
+    table {{ width: 80%; margin: 20px auto; border-collapse: collapse; background: white; }}
+    th, td {{ border: 1px solid #ddd; padding: 10px; }}
+    th {{ background: #667eea; color: white; }}
+    button {{ background: #667eea; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; margin: 10px; }}
+    </style></head><body>
+    <h1>🧹 تنظيف أرقام الطلاب</h1>
+    <div class="success"><h2>✅ اكتمل التنظيف!</h2><p>عدد الطلاب الذين تم تنظيفهم: <strong>{cleaned_count}</strong></p></div>
+    """
+    if changes:
+        html += """<h3>📋 التغييرات التي تمت:</h3><table><thead><tr><th>اسم الطالب</th><th>الرقم القديم (raw)</th><th>الرقم الجديد</th></tr></thead><tbody>"""
+        for change in changes[:50]:
+            html += f"<tr><td>{change['name']}</td><td><code>{change['old']}</code></td><td>{change['new']}</td></tr>"
+        html += "</tbody></table>"
+    html += """<button onclick="window.location.href='/debug_student_ids'">🔍 فحص النتائج</button><button onclick="window.location.href='/'">🏠 العودة إلى الرئيسية</button></body></html>"""
+    return html
+
+@app.route('/api/admin/check_license')
+@login_required
+def check_license_api():
+    if session.get('role') not in ['admin', 'super_admin']:
+        return jsonify({"success": False, "message": "غير مصرح"}), 403
+    is_licensed = check_device_license()
+    return jsonify({"success": True, "is_licensed": is_licensed, "hardware_id": get_hardware_id()})
+
+@app.route('/api/admin/device_status')
+@login_required
+def device_status_api():
+    if session.get('role') not in ['admin', 'super_admin']:
+        return jsonify({"success": False, "message": "غير مصرح"}), 403
+    hardware_id = request.args.get('hardware_id', '')
+    try:
+        result = supabase.table("device_licenses").select("*").eq("hardware_id", hardware_id).execute()
+        if result.data:
+            license_data = result.data[0]
+            expiry_date = datetime.fromisoformat(license_data['expires_at'])
+            is_valid = expiry_date > datetime.now()
+            return jsonify({
+                "success": True,
+                "is_licensed": is_valid,
+                "expires_at": license_data['expires_at'],
+                "days_remaining": (expiry_date - datetime.now()).days if is_valid else 0,
+                "hardware_id": hardware_id
+            })
+        else:
+            return jsonify({"success": True, "is_licensed": False, "message": "لا يوجد ترخيص لهذا الجهاز"})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)})
+
+@app.route('/api/stats')
+@license_required
+def stats():
+    students = get_live_students()
+    attendance = get_live_attendance()
+    return jsonify({
+        "success": True,
+        "students_count": len(students),
+        "attendance_count": len(attendance),
+        "storage": "supabase"
+    })
+
+@app.route('/api/refresh_all')
+@license_required
+def refresh_all():
+    students = get_live_students()
+    attendance = get_live_attendance()
+    return jsonify({
+        "success": True,
+        "students_count": len(students),
+        "attendance_count": len(attendance)
+    })
+
+@app.route('/api/upload_local_students')
+@license_required
+def upload_local_students():
+    try:
+        if os.path.exists("students.csv"):
+            df = pd.read_csv("students.csv", encoding='utf-8-sig')
+        elif os.path.exists("students.xlsx"):
+            df = pd.read_excel("students.xlsx")
+        else:
+            return jsonify({"success": False, "message": "لا يوجد ملف students.csv أو students.xlsx"})
+        df = df.fillna("")
+        for col in df.columns:
+            df[col] = df[col].astype(str)
+        df['student_id'] = df['student_id'].str.replace('.0', '', regex=False).str.strip()
+        df['student_id'] = df['student_id'].apply(clean_student_id)
+        records = df.to_dict("records")
+        supabase.table("students").delete().neq("student_id", "").execute()
+        batch_size = 50
+        for i in range(0, len(records), batch_size):
+            batch = records[i:i+batch_size]
+            supabase.table("students").insert(batch).execute()
+        return jsonify({"success": True, "message": f"تم رفع {len(records)} طالب إلى Supabase"})
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)})
 
 # ============== تشغيل التطبيق ==============
 if __name__ == "__main__":
