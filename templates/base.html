@@ -435,11 +435,10 @@
             <a href="/send_notifications" class="nav-btn nav-btn-info"><i class="fas fa-envelope"></i> 📧 إرسال إشعارات</a>
         {% endif %}
 
-        <!-- ✅ أزرار المدير العام فقط (النسخة التجارية) -->
+        <!-- ✅ أزرار المدير العام فقط (النسخة التجارية - تم حذف "إدارة المدارس") -->
         {% if session.get('role') == 'super_admin' %}
             <hr style="border: none; border-top: 2px dashed #e2e8f0; margin: 5px 0; width: 100%;">
             <a href="/admin/dashboard" class="nav-btn nav-btn-danger"><i class="fas fa-chart-pie"></i> 📊 لوحة التحكم</a>
-            <a href="/admin/schools" class="nav-btn nav-btn-danger"><i class="fas fa-school"></i> 🏫 إدارة المدارس</a>
             <a href="/admin/subscriptions" class="nav-btn nav-btn-danger"><i class="fas fa-credit-card"></i> 🔑 الاشتراكات</a>
             <a href="/school/settings" class="nav-btn nav-btn-info"><i class="fas fa-cog"></i> ⚙️ إعدادات المدرسة</a>
         {% endif %}
