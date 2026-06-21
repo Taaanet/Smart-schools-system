@@ -36,7 +36,6 @@
         }
         .container { max-width: 1400px; margin: 0 auto; }
 
-        /* الهيدر */
         .header {
             background: rgba(255,255,255,0.95);
             backdrop-filter: blur(10px);
@@ -98,7 +97,6 @@
         }
         .lang-btn:hover { background: #cbd5e0; }
 
-        /* زر أيام الترخيص */
         .license-btn {
             background: linear-gradient(135deg, #48bb78, #38a169);
             color: white;
@@ -127,7 +125,6 @@
             50% { opacity: 0.7; }
         }
 
-        /* أزرار التنقل الرئيسية */
         .nav-buttons {
             background: rgba(255,255,255,0.95);
             backdrop-filter: blur(10px);
@@ -158,7 +155,6 @@
         .nav-btn-danger { background: linear-gradient(135deg, #e53e3e, #c53030); color: white; box-shadow: 0 4px 15px rgba(229,62,62,0.3); }
         .nav-btn:hover { transform: translateY(-3px); box-shadow: 0 8px 25px rgba(0,0,0,0.15); }
 
-        /* أزرار الإجراءات */
         .action-buttons {
             background: rgba(255,255,255,0.95);
             backdrop-filter: blur(10px);
@@ -187,7 +183,6 @@
         .action-btn-excel { background: linear-gradient(135deg, #48bb78, #38a169); color: white; }
         .action-btn:hover { transform: translateY(-2px); box-shadow: 0 5px 15px rgba(0,0,0,0.2); }
 
-        /* الجداول والبطاقات */
         .card {
             background: white;
             border-radius: 20px;
@@ -233,7 +228,6 @@
         .late { color: #ed8936; font-weight: bold; }
         .absent { color: #fc8181; font-weight: bold; }
 
-        /* PWA Install Prompt */
         .install-prompt {
             position: fixed;
             bottom: 20px;
@@ -269,7 +263,6 @@
             background: #e53e3e;
         }
 
-        /* Offline Indicator */
         .offline-indicator {
             position: fixed;
             top: 0;
@@ -288,7 +281,6 @@
             transform: translateY(0);
         }
 
-        /* Loading Spinner */
         .loading-overlay {
             position: fixed;
             top: 0;
@@ -314,7 +306,6 @@
             100% { transform: rotate(360deg); }
         }
 
-        /* الفوتر */
         .footer {
             background: linear-gradient(135deg, #1a202c, #2d3748);
             color: #cbd5e0;
@@ -371,45 +362,16 @@
             <span class="user-name"><i class="fas fa-user-circle"></i> {{ session.get('username', 'Admin') }}</span>
             <span class="current-date" id="currentDate"></span>
 
-            <!-- عرض أيام الترخيص المتبقية -->
             {% if session.get('role') != 'admin' and session.get('role') != 'super_admin' %}
                 {% if license_days_remaining is defined %}
                     {% if license_days_remaining == -1 %}
-                        <span class="license-btn">
-                            <i class="fas fa-infinity"></i>
-                            {% if lang == 'ar' %}
-                                غير محدود
-                            {% else %}
-                                Unlimited
-                            {% endif %}
-                        </span>
+                        <span class="license-btn"><i class="fas fa-infinity"></i> {% if lang == 'ar' %}غير محدود{% else %}Unlimited{% endif %}</span>
                     {% elif license_days_remaining > 0 and license_days_remaining <= 7 %}
-                        <span class="license-btn license-warning">
-                            <i class="fas fa-hourglass-half"></i>
-                            {% if lang == 'ar' %}
-                                متبقي {{ license_days_remaining }} يوم
-                            {% else %}
-                                {{ license_days_remaining }} days left
-                            {% endif %}
-                        </span>
+                        <span class="license-btn license-warning"><i class="fas fa-hourglass-half"></i> {% if lang == 'ar' %}متبقي {{ license_days_remaining }} يوم{% else %}{{ license_days_remaining }} days left{% endif %}</span>
                     {% elif license_days_remaining > 0 %}
-                        <span class="license-btn">
-                            <i class="fas fa-check-circle"></i>
-                            {% if lang == 'ar' %}
-                                متبقي {{ license_days_remaining }} يوم
-                            {% else %}
-                                {{ license_days_remaining }} days left
-                            {% endif %}
-                        </span>
+                        <span class="license-btn"><i class="fas fa-check-circle"></i> {% if lang == 'ar' %}متبقي {{ license_days_remaining }} يوم{% else %}{{ license_days_remaining }} days left{% endif %}</span>
                     {% elif license_days_remaining == 0 %}
-                        <span class="license-btn license-danger">
-                            <i class="fas fa-exclamation-triangle"></i>
-                            {% if lang == 'ar' %}
-                                انتهى الترخيص
-                            {% else %}
-                                License Expired
-                            {% endif %}
-                        </span>
+                        <span class="license-btn license-danger"><i class="fas fa-exclamation-triangle"></i> {% if lang == 'ar' %}انتهى الترخيص{% else %}License Expired{% endif %}</span>
                     {% endif %}
                 {% endif %}
             {% endif %}
@@ -430,16 +392,17 @@
         <a href="/class_reports" class="nav-btn nav-btn-info"><i class="fas fa-users"></i> {{ t('class_reports') }}</a>
         <a href="/manage_students" class="nav-btn nav-btn-info"><i class="fas fa-user-graduate"></i> {{ t('manage_students') }}</a>
 
+        <!-- ✅ الأزرار الإدارية المحذوفة نهائياً (backup, users, licenses, upload_students) -->
+
         <!-- ✅ الأزرار المحدثة للنسخة التجارية (للمدير والمدير العام) -->
         {% if session.get('role') == 'admin' or session.get('role') == 'super_admin' %}
             <a href="/send_notifications" class="nav-btn nav-btn-info"><i class="fas fa-envelope"></i> 📧 إرسال إشعارات</a>
         {% endif %}
 
-        <!-- ✅ أزرار المدير العام فقط (النسخة التجارية - تم حذف "إدارة المدارس") -->
+        <!-- ✅ أزرار المدير العام فقط (النسخة التجارية النهائية) -->
         {% if session.get('role') == 'super_admin' %}
             <hr style="border: none; border-top: 2px dashed #e2e8f0; margin: 5px 0; width: 100%;">
             <a href="/admin/dashboard" class="nav-btn nav-btn-danger"><i class="fas fa-chart-pie"></i> 📊 لوحة التحكم</a>
-            <a href="/admin/subscriptions" class="nav-btn nav-btn-danger"><i class="fas fa-credit-card"></i> 🔑 الاشتراكات</a>
             <a href="/school/settings" class="nav-btn nav-btn-info"><i class="fas fa-cog"></i> ⚙️ إعدادات المدرسة</a>
         {% endif %}
     </div>
