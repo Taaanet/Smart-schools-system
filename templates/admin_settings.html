@@ -1,0 +1,506 @@
+{% extends "base.html" %}
+{% block title %}⚙️ الإعدادات المتقدمة{% endblock %}
+
+{% block extra_css %}
+<style>
+    .settings-tabs {
+        display: flex;
+        gap: 5px;
+        margin-bottom: 20px;
+        background: #f7fafc;
+        border-radius: 12px;
+        padding: 5px;
+        flex-wrap: wrap;
+    }
+    .settings-tabs .tab-btn {
+        padding: 10px 25px;
+        border: none;
+        border-radius: 10px;
+        cursor: pointer;
+        font-weight: 600;
+        font-size: 14px;
+        transition: all 0.3s;
+        background: transparent;
+        color: #718096;
+    }
+    .settings-tabs .tab-btn:hover { background: #edf2f7; }
+    .settings-tabs .tab-btn.active {
+        background: white;
+        color: #667eea;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.08);
+    }
+    .settings-tab-content { display: none; }
+    .settings-tab-content.active { display: block; }
+    
+    .settings-card {
+        background: white;
+        border-radius: 20px;
+        padding: 25px;
+        margin-bottom: 25px;
+        box-shadow: 0 5px 20px rgba(0,0,0,0.08);
+    }
+    .settings-card h3 {
+        margin-bottom: 20px;
+        padding-bottom: 10px;
+        border-bottom: 2px solid #667eea;
+    }
+    .settings-row {
+        display: flex;
+        gap: 20px;
+        flex-wrap: wrap;
+        margin-bottom: 15px;
+        align-items: center;
+    }
+    .settings-row label {
+        min-width: 150px;
+        font-weight: 600;
+        color: #4a5568;
+    }
+    .settings-row input, .settings-row select {
+        flex: 1;
+        padding: 10px 15px;
+        border: 2px solid #e2e8f0;
+        border-radius: 10px;
+        min-width: 200px;
+    }
+    .btn-save {
+        background: linear-gradient(135deg, #48bb78, #38a169);
+        color: white;
+        border: none;
+        padding: 12px 35px;
+        border-radius: 12px;
+        cursor: pointer;
+        font-weight: bold;
+        font-size: 16px;
+    }
+    .btn-save:hover { transform: translateY(-2px); }
+    .btn-danger { background: linear-gradient(135deg, #e53e3e, #c53030); }
+    .btn-info { background: linear-gradient(135deg, #4299e1, #3182ce); }
+    .btn-warning { background: linear-gradient(135deg, #ed8936, #dd6b20); }
+    
+    .alert {
+        padding: 12px;
+        border-radius: 12px;
+        margin-bottom: 15px;
+    }
+    .alert-success { background: #c6f6d5; color: #22543d; }
+    .alert-error { background: #fed7d7; color: #742a2a; }
+    .alert-info { background: #bee3f8; color: #2c5282; }
+    
+    .upload-area {
+        border: 2px dashed #cbd5e0;
+        border-radius: 20px;
+        padding: 40px;
+        text-align: center;
+        background: #f7fafc;
+        cursor: pointer;
+        transition: all 0.3s ease;
+    }
+    .upload-area:hover { border-color: #667eea; background: #edf2f7; }
+    
+    .backup-list {
+        max-height: 300px;
+        overflow-y: auto;
+    }
+    .backup-item {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 10px 15px;
+        border-bottom: 1px solid #e2e8f0;
+    }
+    .backup-item:hover { background: #f7fafc; }
+    .backup-item .btn-download {
+        background: #4299e1;
+        color: white;
+        padding: 5px 15px;
+        border-radius: 8px;
+        text-decoration: none;
+        font-size: 12px;
+    }
+    
+    .email-status {
+        display: inline-block;
+        padding: 4px 12px;
+        border-radius: 20px;
+        font-size: 12px;
+        font-weight: 600;
+    }
+    .email-status.configured { background: #c6f6d5; color: #22543d; }
+    .email-status.not-configured { background: #fed7d7; color: #742a2a; }
+    
+    @media (max-width: 768px) {
+        .settings-row { flex-direction: column; align-items: stretch; }
+        .settings-row label { min-width: auto; }
+        .settings-tabs { flex-direction: column; }
+        .settings-tabs .tab-btn { text-align: center; }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container">
+    <h1 style="margin-bottom: 20px;">⚙️ الإعدادات المتقدمة</h1>
+    
+    <div id="alert" class="alert" style="display:none;"></div>
+    
+    <!-- التبويبات -->
+    <div class="settings-tabs">
+        <button class="tab-btn active" onclick="switchSettingsTab('school')">🏫 المدرسة</button>
+        <button class="tab-btn" onclick="switchSettingsTab('licenses')">🔑 التراخيص</button>
+        <button class="tab-btn" onclick="switchSettingsTab('backup')">💾 النسخ الاحتياطي</button>
+        <button class="tab-btn" onclick="switchSettingsTab('upload')">📤 رفع طلاب</button>
+    </div>
+    
+    <!-- ===== تبويب المدرسة ===== -->
+    <div id="settings-tab-school" class="settings-tab-content active">
+        <div class="settings-card">
+            <h3>🏫 إعدادات المدرسة</h3>
+            
+            {% with messages = get_flashed_messages(with_categories=true) %}
+                {% if messages %}
+                    {% for category, message in messages %}
+                        <div class="alert alert-{{ category }}">{{ message }}</div>
+                    {% endfor %}
+                {% endif %}
+            {% endwith %}
+            
+            <div class="settings-row">
+                <label>اسم المدرسة:</label>
+                <input type="text" id="schoolName" value="{{ school.name if school else '' }}">
+            </div>
+            <div class="settings-row">
+                <label>النطاق الفرعي:</label>
+                <input type="text" id="schoolSubdomain" value="{{ school.subdomain if school else '' }}" disabled>
+                <small style="color: #718096;">لا يمكن تغيير النطاق الفرعي</small>
+            </div>
+            <div class="settings-row">
+                <label>الخطة:</label>
+                <select id="schoolPlan">
+                    <option value="basic" {% if school and school.plan == 'basic' %}selected{% endif %}>🟦 Basic</option>
+                    <option value="premium" {% if school and school.plan == 'premium' %}selected{% endif %}>🟩 Premium</option>
+                    <option value="enterprise" {% if school and school.plan == 'enterprise' %}selected{% endif %}>🟨 Enterprise</option>
+                </select>
+            </div>
+            <div class="settings-row">
+                <label>تاريخ انتهاء الترخيص:</label>
+                <input type="text" id="licenseExpiry" value="{{ school.license_expiry[:10] if school and school.license_expiry else 'غير محدد' }}" disabled>
+            </div>
+            
+            <hr style="margin: 20px 0;">
+            
+            <h4 style="margin-bottom: 15px;">🎨 تخصيص الواجهة</h4>
+            <div class="settings-row">
+                <label>شعار المدرسة:</label>
+                <input type="text" id="schoolLogo" placeholder="رابط الصورة" value="{{ school.logo or '' }}">
+            </div>
+            <div class="settings-row">
+                <label>اللون الأساسي:</label>
+                <input type="color" id="primaryColor" value="#667eea">
+            </div>
+            <div class="settings-row">
+                <label>اللون الثانوي:</label>
+                <input type="color" id="secondaryColor" value="#764ba2">
+            </div>
+            
+            <hr style="margin: 20px 0;">
+            
+            <h4 style="margin-bottom: 15px;">👤 معلومات مدير المدرسة</h4>
+            <div class="settings-row">
+                <label>اسم المدير:</label>
+                <input type="text" id="adminName" value="{{ school.admin_name or '' }}">
+            </div>
+            <div class="settings-row">
+                <label>البريد الإلكتروني:</label>
+                <input type="email" id="adminEmail" value="{{ school.admin_email or '' }}">
+            </div>
+            <div class="settings-row">
+                <label>رقم الجوال:</label>
+                <input type="text" id="adminPhone" value="{{ school.admin_phone or '' }}">
+            </div>
+            
+            <hr style="margin: 20px 0;">
+            
+            <h4 style="margin-bottom: 15px;">📧 الإشعارات البريدية</h4>
+            <div class="settings-row">
+                <label>حالة البريد:</label>
+                <span class="email-status {% if email_configured %}configured{% else %}not-configured{% endif %}">
+                    {% if email_configured %}
+                        ✅ مفعل
+                    {% else %}
+                        ❌ غير مفعل - أضف <code>EMAIL_PASSWORD</code>
+                    {% endif %}
+                </span>
+            </div>
+            
+            <button class="btn-save" onclick="saveSchoolSettings()" style="margin-top: 15px;">💾 حفظ الإعدادات</button>
+        </div>
+    </div>
+    
+    <!-- ===== تبويب التراخيص ===== -->
+    <div id="settings-tab-licenses" class="settings-tab-content">
+        <div class="settings-card">
+            <h3>🔑 إدارة التراخيص</h3>
+            
+            <div style="display: flex; gap: 15px; flex-wrap: wrap; margin-bottom: 20px;">
+                <input type="text" id="licenseHardwareId" placeholder="معرف الجهاز (من طلب التفعيل)" style="flex:2; padding: 10px 15px; border: 2px solid #e2e8f0; border-radius: 10px;">
+                <input type="number" id="licenseValidityDays" placeholder="أيام الصلاحية" value="365" style="flex:1; padding: 10px 15px; border: 2px solid #e2e8f0; border-radius: 10px;">
+                <button class="btn-save" onclick="createLicense()">🔑 إنشاء رمز تفعيل</button>
+            </div>
+            
+            <h4 style="margin: 20px 0 10px;">📋 التراخيص النشطة</h4>
+            <div class="table-wrapper">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>معرف الجهاز</th>
+                            <th>تاريخ الانتهاء</th>
+                            <th>تاريخ الإنشاء</th>
+                            <th>الإجراءات</th>
+                        </tr>
+                    </thead>
+                    <tbody id="licensesTableBody">
+                        <tr><td colspan="4" style="text-align:center;">جاري التحميل...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    
+    <!-- ===== تبويب النسخ الاحتياطي ===== -->
+    <div id="settings-tab-backup" class="settings-tab-content">
+        <div class="settings-card">
+            <h3>💾 النسخ الاحتياطي</h3>
+            
+            <button class="btn-save" onclick="createBackup()">🔄 إنشاء نسخة احتياطية</button>
+            
+            <h4 style="margin: 20px 0 10px;">📋 قائمة النسخ الاحتياطية</h4>
+            <div id="backupList" class="backup-list">
+                <div style="text-align:center;padding:30px;color:#a0aec0;">⏳ جاري التحميل...</div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- ===== تبويب رفع الطلاب ===== -->
+    <div id="settings-tab-upload" class="settings-tab-content">
+        <div class="settings-card">
+            <h3>📤 رفع الطلاب</h3>
+            
+            <div id="uploadStatus" class="alert" style="display:none;"></div>
+            
+            <div class="upload-area" id="uploadArea" onclick="document.getElementById('fileInput').click()">
+                <i class="fas fa-cloud-upload-alt" style="font-size: 60px; color: #667eea;"></i>
+                <p style="margin-top: 15px; font-size: 18px; color: #4a5568;">اضغط هنا لاختيار ملف Excel أو CSV</p>
+                <p style="font-size: 14px; color: #718096;">الملفات المدعومة: .xlsx, .xls, .csv</p>
+            </div>
+            
+            <form method="POST" enctype="multipart/form-data" id="uploadForm" action="/admin/upload_students">
+                <input type="file" name="file" id="fileInput" style="display: none;" accept=".xlsx,.xls,.csv" onchange="document.getElementById('uploadForm').submit()">
+            </form>
+            
+            <hr style="margin: 20px 0;">
+            
+            <div style="display: flex; gap: 15px; flex-wrap: wrap;">
+                <a href="/api/admin/export_current_students" class="btn-save btn-info" style="text-decoration:none;">📥 تحميل الطلاب الحاليين (نموذج)</a>
+                <button class="btn-save btn-warning" onclick="location.reload()">🔄 تحديث القائمة</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    // ===== أدوات عامة =====
+    function showAlert(message, type) {
+        const alertDiv = document.getElementById('alert');
+        alertDiv.className = `alert alert-${type}`;
+        alertDiv.innerHTML = message;
+        alertDiv.style.display = 'block';
+        setTimeout(() => { alertDiv.style.display = 'none'; }, 4000);
+    }
+    
+    function switchSettingsTab(tab) {
+        document.querySelectorAll('.settings-tab-content').forEach(el => el.classList.remove('active'));
+        document.querySelectorAll('.settings-tabs .tab-btn').forEach(el => el.classList.remove('active'));
+        document.getElementById('settings-tab-' + tab).classList.add('active');
+        document.querySelector(`.settings-tabs .tab-btn[onclick="switchSettingsTab('${tab}')"]`).classList.add('active');
+        
+        // تحميل البيانات عند التبديل
+        if (tab === 'licenses') loadLicenses();
+        if (tab === 'backup') loadBackups();
+    }
+    
+    // ===== إعدادات المدرسة =====
+    async function saveSchoolSettings() {
+        const schoolId = '{{ school.id if school else "" }}';
+        if (!schoolId) {
+            showAlert('❌ المدرسة غير محددة', 'error');
+            return;
+        }
+        
+        const settings = {
+            school_name: document.getElementById('schoolName').value,
+            school_logo: document.getElementById('schoolLogo').value,
+            primary_color: document.getElementById('primaryColor').value,
+            secondary_color: document.getElementById('secondaryColor').value,
+            admin_name: document.getElementById('adminName').value,
+            admin_email: document.getElementById('adminEmail').value,
+            admin_phone: document.getElementById('adminPhone').value,
+            plan: document.getElementById('schoolPlan').value
+        };
+        
+        try {
+            const response = await fetch('/api/admin/update_school/' + schoolId, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(settings)
+            });
+            const data = await response.json();
+            
+            if (data.success) {
+                showAlert('✅ تم حفظ الإعدادات بنجاح', 'success');
+                setTimeout(() => window.location.reload(), 1500);
+            } else {
+                showAlert('❌ ' + data.message, 'error');
+            }
+        } catch(error) {
+            showAlert('❌ حدث خطأ في الاتصال', 'error');
+        }
+    }
+    
+    // ===== إدارة التراخيص =====
+    async function loadLicenses() {
+        try {
+            const response = await fetch('/admin/licenses?api=1');
+            const data = await response.json();
+            const tbody = document.getElementById('licensesTableBody');
+            
+            if (data.success && data.licenses && data.licenses.length > 0) {
+                let html = '';
+                data.licenses.forEach(license => {
+                    html += `
+                        <tr>
+                            <td><code style="font-size:11px;">${license.hardware_id.slice(0, 30)}...</code></td>
+                            <td>${license.expires_at ? license.expires_at.slice(0, 10) : '-'}</td>
+                            <td>${license.created_at ? license.created_at.slice(0, 10) : '-'}</td>
+                            <td><button class="btn-sm btn-delete" onclick="revokeLicense(${license.id})">🗑️ إلغاء</button></td>
+                        </tr>
+                    `;
+                });
+                tbody.innerHTML = html;
+            } else {
+                tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:#a0aec0;">⚠️ لا توجد تراخيص</td></tr>';
+            }
+        } catch(e) {
+            document.getElementById('licensesTableBody').innerHTML = '<tr><td colspan="4" style="text-align:center;color:#e53e3e;">❌ خطأ في التحميل</td></tr>';
+        }
+    }
+    
+    async function createLicense() {
+        const hardware_id = document.getElementById('licenseHardwareId').value.trim();
+        const validity_days = document.getElementById('licenseValidityDays').value;
+        
+        if (!hardware_id) {
+            showAlert('⚠️ الرجاء إدخال معرف الجهاز', 'error');
+            return;
+        }
+        
+        try {
+            const formData = new FormData();
+            formData.append('hardware_id', hardware_id);
+            formData.append('validity_days', validity_days);
+            
+            const response = await fetch('/api/admin/create_license', {
+                method: 'POST',
+                body: formData
+            });
+            const html = await response.text();
+            
+            // عرض النتيجة في مودال
+            const modal = document.createElement('div');
+            modal.className = 'modal';
+            modal.style.display = 'flex';
+            modal.innerHTML = `
+                <div class="modal-content">
+                    <h3>✅ تم إنشاء رمز التفعيل</h3>
+                    ${html}
+                    <div class="modal-buttons">
+                        <button class="btn-save" onclick="this.closest('.modal').remove()">حسناً</button>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(modal);
+            
+            document.getElementById('licenseHardwareId').value = '';
+            loadLicenses();
+        } catch(e) {
+            showAlert('❌ حدث خطأ: ' + e.message, 'error');
+        }
+    }
+    
+    async function revokeLicense(licenseId) {
+        if (!confirm('⚠️ هل أنت متأكد من إلغاء هذا الترخيص؟')) return;
+        
+        try {
+            const response = await fetch(`/api/admin/revoke_license/${licenseId}`);
+            const data = await response.json();
+            
+            if (data.success) {
+                showAlert('✅ تم إلغاء الترخيص', 'success');
+                loadLicenses();
+            } else {
+                showAlert('❌ ' + data.message, 'error');
+            }
+        } catch(e) {
+            showAlert('❌ حدث خطأ', 'error');
+        }
+    }
+    
+    // ===== النسخ الاحتياطي =====
+    async function loadBackups() {
+        try {
+            const response = await fetch('/api/list_backups');
+            const data = await response.json();
+            const container = document.getElementById('backupList');
+            
+            if (data.success && data.backups && data.backups.length > 0) {
+                let html = '';
+                data.backups.forEach(backup => {
+                    html += `
+                        <div class="backup-item">
+                            <span>📄 ${backup.name}</span>
+                            <span>${backup.size_kb} KB</span>
+                            <span>${backup.date}</span>
+                            <a href="/api/download_backup/${backup.name}" class="btn-download">📥 تحميل</a>
+                        </div>
+                    `;
+                });
+                container.innerHTML = html;
+            } else {
+                container.innerHTML = '<div style="text-align:center;padding:30px;color:#a0aec0;">📭 لا توجد نسخ احتياطية</div>';
+            }
+        } catch(e) {
+            document.getElementById('backupList').innerHTML = '<div style="text-align:center;padding:30px;color:#e53e3e;">❌ خطأ في التحميل</div>';
+        }
+    }
+    
+    async function createBackup() {
+        try {
+            const response = await fetch('/api/create_backup');
+            const data = await response.json();
+            
+            if (data.success) {
+                showAlert('✅ ' + data.message, 'success');
+                loadBackups();
+            } else {
+                showAlert('❌ ' + data.message, 'error');
+            }
+        } catch(e) {
+            showAlert('❌ حدث خطأ', 'error');
+        }
+    }
+    
+    // ===== التحميل الأولي =====
+    loadLicenses();
+    loadBackups();
+</script>
+{% endblock %}
