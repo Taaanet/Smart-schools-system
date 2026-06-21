@@ -1619,7 +1619,7 @@ def admin_clean_student_ids():
 @login_required
 def users_list():
     try:
-        # ✅ التعديل: السماح لكل من admin و super_admin
+        # ✅ السماح لكل من admin و super_admin
         if session.get('role') not in ['admin', 'super_admin']:
             return redirect(url_for('home'))
 
@@ -1649,7 +1649,6 @@ def users_list():
         import traceback
         traceback.print_exc()
         return f"<h1>خطأ في النظام</h1><p>الرجاء المحاولة لاحقاً</p><p>التفاصيل: {str(e)}</p>", 500
-
 # ============== دالة API للمستخدمين (تم إزالة التكرار) ==============
 @app.route("/api/users")
 @login_required
@@ -2644,14 +2643,14 @@ def landing():
 @login_required
 @super_admin_required
 def admin_dashboard():
-    """لوحة تحكم المدير العام"""
+    """لوحة تحكم المدير العام - إدارة المدارس"""
     schools = get_all_schools()
     total_schools = len(schools)
     active_schools = len([s for s in schools if s.get('is_active')]) if schools else 0
     
     # جلب إحصائيات كل مدرسة
     school_stats = []
-    for school in schools[:10]:  # عرض أول 10 مدارس
+    for school in schools[:20]:
         stats = get_school_stats(school['id'])
         if stats:
             school_stats.append({
@@ -2660,14 +2659,21 @@ def admin_dashboard():
                 'subdomain': school['subdomain'],
                 'license_expiry': school.get('license_expiry'),
                 'is_active': school.get('is_active', True),
+                'plan': school.get('plan', 'basic'),
                 'students': stats.get('total_students', 0),
                 'attendance': stats.get('total_attendance', 0)
             })
     
+    # جلب إحصائيات إضافية
+    all_students = get_live_students()
+    users = load_users()
+    
     return render_template('admin_dashboard.html', 
+                         schools=school_stats,
                          total_schools=total_schools,
                          active_schools=active_schools,
-                         schools=school_stats)
+                         total_students_all=len(all_students),
+                         total_users=len(users))
 
 @app.route('/admin/schools')
 @login_required
@@ -2694,7 +2700,7 @@ def school_settings():
     
     school = get_school_from_domain(request.host)
     
-    # ✅ إذا لم توجد المدرسة، قم بإنشائها تلقائياً
+    # إذا لم توجد المدرسة، قم بإنشائها تلقائياً
     if not school:
         try:
             subdomain = request.host.split('.')[0]
@@ -2722,7 +2728,12 @@ def school_settings():
         flash('المدرسة غير موجودة', 'error')
         return redirect(url_for('admin_dashboard'))
     
-    return render_template('school_settings.html', school=school)
+    # جلب إعدادات Twilio من البيئة
+    twilio_configured = bool(os.environ.get('TWILIO_ACCOUNT_SID') and os.environ.get('TWILIO_AUTH_TOKEN'))
+    
+    return render_template('school_settings.html', 
+                         school=school,
+                         twilio_configured=twilio_configured)
 
 @app.route('/api/admin/create_school', methods=['POST'])
 @login_required
@@ -2804,6 +2815,313 @@ def extend_license_api(school_id):
         return jsonify({"success": True, "message": message})
     return jsonify({"success": False, "message": message}), 400
 
+# ============== دوال إرسال الإشعارات المتقدمة ==============
+
+def get_students_by_filter(grade=None, class_val=None, student_id=None):
+    """
+    جلب الطلاب حسب الفلتر المحدد
+    """
+    students = get_live_students()
+    
+    if student_id:
+        student = next((s for s in students if s.get('student_id') == student_id), None)
+        return [student] if student else []
+    
+    filtered = students
+    
+    if grade:
+        filtered = [s for s in filtered if s.get('grade') == grade]
+    
+    if class_val:
+        filtered = [s for s in filtered if s.get('class') == class_val]
+    
+    return filtered
+
+
+def get_attendance_status_for_students(students, date=None):
+    """
+    الحصول على حالة الحضور للطلاب في تاريخ محدد
+    """
+    if not date:
+        date = datetime.now().strftime('%Y-%m-%d')
+    
+    attendance = get_live_attendance()
+    today_records = [r for r in attendance if r.get('date') == date]
+    
+    result = []
+    for student in students:
+        record = next((r for r in today_records if r.get('student_id') == student.get('student_id')), None)
+        result.append({
+            'student': student,
+            'status': record.get('status') if record else 'غائب',
+            'time': record.get('time') if record else '-',
+            'date': date
+        })
+    
+    return result
+
+
+def send_attendance_notifications(students_status, recipient_type='both', custom_message=None):
+    """
+    إرسال إشعارات للطلاب حسب حالتهم
+    """
+    sent_count = 0
+    errors = []
+    results = []
+    
+    for item in students_status:
+        student = item['student']
+        status = item['status']
+        student_name = student.get('name', '')
+        student_email = student.get('email', '')
+        parent_email = student.get('parent_email', '')
+        
+        # تحديد المستلمين
+        recipients = []
+        if recipient_type in ['student', 'both'] and student_email:
+            recipients.append(student_email)
+        if recipient_type in ['parent', 'both'] and parent_email:
+            recipients.append(parent_email)
+        
+        if not recipients:
+            errors.append(f"{student_name}: لا يوجد بريد إلكتروني مسجل")
+            continue
+        
+        # إرسال الإشعار
+        for email in recipients:
+            success, message = send_notification_email_advanced(
+                email, 
+                student_name, 
+                status, 
+                item.get('time'), 
+                item.get('date'),
+                custom_message
+            )
+            if success:
+                sent_count += 1
+            else:
+                errors.append(f"{email}: {message}")
+        
+        results.append({
+            'student': student_name,
+            'status': status,
+            'sent_to': len(recipients)
+        })
+    
+    return sent_count, errors, results
+
+
+def send_notification_email_advanced(recipient_email, student_name, status, time=None, date=None, custom_message=None):
+    """
+    إرسال إشعار بريدي مخصص حسب حالة الطالب
+    """
+    try:
+        if not app.config['MAIL_PASSWORD']:
+            return False, "البريد الإلكتروني غير مضبوط"
+        
+        if not recipient_email or '@' not in recipient_email:
+            return False, "البريد الإلكتروني غير صالح"
+        
+        # تحديد محتوى الرسالة حسب الحالة
+        if status == 'غائب' or status == 'absent':
+            title = "❌ تنبيه: غياب الطالب"
+            status_emoji = '❌'
+            status_text = 'غائب'
+            status_color = '#e53e3e'
+            default_message = """
+            نأسف لإبلاغكم بأن الطالب لم يحضر اليوم.
+            يرجى متابعة أسباب الغياب واتخاذ اللازم.
+            """
+        elif status == 'متأخر' or status == 'late':
+            title = "⏰ تنبيه: تأخر الطالب"
+            status_emoji = '⏰'
+            status_text = 'متأخر عن الحضور'
+            status_color = '#ed8936'
+            default_message = """
+            نحيطكم علماً بأن الطالب قد حضر متأخراً اليوم.
+            يرجى التنبيه على أهمية الالتزام بمواعيد الحضور.
+            """
+        else:
+            title = "✅ إشعار حضور"
+            status_emoji = '✅'
+            status_text = 'حاضر في الوقت المحدد'
+            status_color = '#28a745'
+            default_message = """
+            تم تسجيل حضور الطالب اليوم في الوقت المحدد.
+            نشكركم على متابعتكم المستمرة.
+            """
+        
+        # تنسيق الوقت والتاريخ
+        if not time:
+            time = datetime.now().strftime('%I:%M %p')
+        if not date:
+            date = datetime.now().strftime('%Y-%m-%d')
+        
+        # بناء الرسالة
+        message_body = custom_message or default_message
+        
+        html_body = f"""
+        <div style="font-family: 'Cairo', Arial, sans-serif; direction: rtl; max-width: 600px; margin: 0 auto; padding: 20px; background: #f7fafc; border-radius: 16px;">
+            <div style="background: linear-gradient(135deg, #667eea, #764ba2); padding: 25px; border-radius: 12px; text-align: center; color: white;">
+                <h2 style="margin: 0; font-size: 24px;">🎓 {title}</h2>
+                <p style="margin: 5px 0 0; opacity: 0.9;">نظام حضور الطلاب الذكي</p>
+            </div>
+            
+            <div style="background: white; padding: 25px; border-radius: 12px; margin-top: 20px; box-shadow: 0 4px 15px rgba(0,0,0,0.05);">
+                <div style="background: #f7fafc; padding: 15px; border-radius: 10px; margin-bottom: 20px;">
+                    <p style="margin: 8px 0; font-size: 16px;">
+                        <strong>👤 الطالب:</strong> {student_name}
+                    </p>
+                    <p style="margin: 8px 0;">
+                        <strong>📊 الحالة:</strong> 
+                        <span style="color: {status_color}; font-weight: bold;">{status_emoji} {status_text}</span>
+                    </p>
+                    <p style="margin: 8px 0;"><strong>🕐 وقت التسجيل:</strong> {time}</p>
+                    <p style="margin: 8px 0;"><strong>📅 التاريخ:</strong> {date}</p>
+                </div>
+                
+                <div style="background: #fef5e7; padding: 15px; border-radius: 10px; margin-bottom: 20px; border-right: 4px solid #ed8936;">
+                    <p style="margin: 0; font-size: 15px; line-height: 1.8;">
+                        {message_body}
+                    </p>
+                </div>
+                
+                <p style="color: #718096; font-size: 14px; border-top: 1px solid #e2e8f0; padding-top: 15px; margin-top: 15px;">
+                    📌 تم إرسال هذا الإشعار تلقائياً من نظام حضور الطلاب.
+                </p>
+            </div>
+            
+            <div style="text-align: center; margin-top: 20px; font-size: 12px; color: #a0aec0;">
+                <p>© 2026 نظام حضور الطلاب الذكي | جميع الحقوق محفوظة</p>
+            </div>
+        </div>
+        """
+        
+        subject = f"{title} - {student_name} - {date}"
+        
+        msg = Message(
+            subject=subject,
+            recipients=[recipient_email],
+            html=html_body,
+            sender=app.config['MAIL_DEFAULT_SENDER']
+        )
+        
+        mail.send(msg)
+        return True, "تم الإرسال"
+        
+    except Exception as e:
+        print(f"❌ خطأ في إرسال البريد: {e}")
+        return False, str(e)
+
+
+def send_bulk_notification_emails(recipients, student_name, status):
+    """
+    إرسال إشعارات بريدية لمجموعة من المستلمين
+    """
+    success_count = 0
+    errors = []
+    
+    for email in recipients:
+        if email and '@' in email:
+            success, message = send_notification_email_advanced(email, student_name, status)
+            if success:
+                success_count += 1
+            else:
+                errors.append(f"{email}: {message}")
+    
+    return success_count, errors
+
+
+# ============== API إرسال إشعارات متقدمة ==============
+
+@app.route('/api/send_attendance_notifications', methods=['POST'])
+@login_required
+def send_attendance_notifications_api():
+    """
+    API لإرسال إشعارات للطلاب حسب حالتهم (غائب/متأخر)
+    """
+    if session.get('role') not in ['admin', 'super_admin']:
+        return jsonify({"success": False, "message": "غير مصرح"}), 403
+    
+    data = request.get_json()
+    
+    notification_type = data.get('notification_type')  # 'absent', 'late', 'all'
+    recipient_type = data.get('recipient_type', 'both')  # 'student', 'parent', 'both'
+    grade = data.get('grade')
+    class_val = data.get('class')
+    student_id = data.get('student_id')
+    custom_message = data.get('custom_message')
+    date = data.get('date', datetime.now().strftime('%Y-%m-%d'))
+    
+    if not notification_type:
+        return jsonify({"success": False, "message": "الرجاء تحديد نوع الإشعار (غائب/متأخر)"})
+    
+    # جلب الطلاب حسب الفلتر
+    students = get_students_by_filter(grade, class_val, student_id)
+    
+    if not students:
+        return jsonify({"success": False, "message": "لا يوجد طلاب مطابقين للفلتر"})
+    
+    # جلب حالة الحضور للطلاب
+    students_status = get_attendance_status_for_students(students, date)
+    
+    # تصفية حسب نوع الإشعار
+    if notification_type == 'absent':
+        filtered = [s for s in students_status if s['status'] == 'غائب']
+    elif notification_type == 'late':
+        filtered = [s for s in students_status if s['status'] == 'متأخر']
+    else:  # 'all'
+        filtered = students_status
+    
+    if not filtered:
+        status_text = {'absent': 'غائبين', 'late': 'متأخرين', 'all': 'جميع الطلاب'}
+        return jsonify({
+            "success": False, 
+            "message": f"لا يوجد {status_text.get(notification_type, 'طلاب')} في الفئة المحددة"
+        })
+    
+    # إرسال الإشعارات
+    sent_count, errors, results = send_attendance_notifications(filtered, recipient_type, custom_message)
+    
+    return jsonify({
+        "success": True,
+        "message": f"✅ تم إرسال {sent_count} إشعار",
+        "total_students": len(filtered),
+        "sent_count": sent_count,
+        "errors": errors if errors else None,
+        "results": results
+    })
+
+
+@app.route('/api/get_students_with_status', methods=['POST'])
+@login_required
+def get_students_with_status():
+    """
+    API لجلب الطلاب مع حالة الحضور في تاريخ محدد
+    """
+    if session.get('role') not in ['admin', 'super_admin']:
+        return jsonify({"success": False, "message": "غير مصرح"}), 403
+    
+    data = request.get_json()
+    grade = data.get('grade')
+    class_val = data.get('class')
+    date = data.get('date', datetime.now().strftime('%Y-%m-%d'))
+    
+    students = get_students_by_filter(grade, class_val)
+    students_status = get_attendance_status_for_students(students, date)
+    
+    return jsonify({
+        "success": True,
+        "date": date,
+        "students": students_status,
+        "summary": {
+            "total": len(students_status),
+            "present": len([s for s in students_status if s['status'] == 'حاضر في الوقت']),
+            "late": len([s for s in students_status if s['status'] == 'متأخر']),
+            "absent": len([s for s in students_status if s['status'] == 'غائب'])
+        }
+    })
+
 # ============== تشغيل النسخ الاحتياطي التلقائي في الخلفية ==============
 backup_thread = threading.Thread(target=scheduled_backup, daemon=True)
 backup_thread.start()
@@ -2833,6 +3151,82 @@ def ensure_super_admin():
 
 # تشغيل الدالة عند بدء التطبيق
 ensure_super_admin()
+
+# ============== API إرسال واتساب تجريبي ==============
+@app.route('/api/send_whatsapp_test', methods=['POST'])
+@login_required
+def send_whatsapp_test():
+    """API لإرسال رسالة واتساب تجريبية (للمديرين فقط)"""
+    if session.get('role') not in ['admin', 'super_admin']:
+        return jsonify({"success": False, "message": "غير مصرح"}), 403
+    
+    data = request.get_json()
+    phone = data.get('phone', '').strip()
+    student_id = data.get('student_id')
+    custom_message = data.get('message', '')
+    
+    # إذا تم إرسال student_id، جلب رقم الطالب
+    if student_id:
+        students = get_live_students()
+        student = next((s for s in students if s.get('student_id') == student_id), None)
+        if student:
+            phone = student.get('phone', '').strip()
+            if not phone:
+                return jsonify({"success": False, "message": f"الطالب {student.get('name')} ليس لديه رقم جوال"})
+            student_name = student.get('name', '')
+    
+    if not phone:
+        return jsonify({"success": False, "message": "الرجاء إدخال رقم الجوال"})
+    
+    # تنظيف رقم الجوال
+    phone = re.sub(r'[^0-9+]', '', phone)
+    if not phone.startswith('+'):
+        phone = '+' + phone
+    
+    # التحقق من تفعيل Twilio
+    if not twilio_enabled:
+        return jsonify({"success": False, "message": "خدمة واتساب غير مفعلة. يرجى تكوين Twilio."})
+    
+    try:
+        # إرسال رسالة واتساب
+        message_body = custom_message or f"""
+📢 *نظام حضور الطلاب الذكي*
+
+مرحباً بك في نظام حضور الطلاب.
+تم إرسال هذه الرسالة كاختبار لخدمة واتساب.
+
+👤 *اسم المستخدم:* {session.get('username')}
+🕐 *الوقت:* {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+
+شكراً لاستخدامك نظام حضور الطلاب.
+"""
+        
+        if student_id and student_name:
+            message_body = f"""
+🎓 *نظام حضور الطلاب*
+
+👤 *الطالب:* {student_name}
+📱 *رقم الجوال:* {phone}
+🕐 *الوقت:* {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+
+تم إرسال هذه الرسالة كاختبار لخدمة واتساب.
+"""
+        
+        message = twilio_client.messages.create(
+            body=message_body,
+            from_=TWILIO_WHATSAPP_NUMBER,
+            to=f"whatsapp:{phone}"
+        )
+        
+        return jsonify({
+            "success": True, 
+            "message": f"تم إرسال الرسالة بنجاح إلى {phone}",
+            "sid": message.sid
+        })
+        
+    except Exception as e:
+        print(f"❌ خطأ في إرسال واتساب: {e}")
+        return jsonify({"success": False, "message": f"فشل الإرسال: {str(e)}"})
 
 # ============== تشغيل التطبيق ==============
 if __name__ == "__main__":
