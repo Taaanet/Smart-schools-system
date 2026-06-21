@@ -804,6 +804,7 @@ def create_user(username, password, role='user', license_days=None):
         message += f" مع ترخيص {license_days} يوماً حتى {expiry_date}"
     
     return True, message
+
 def update_user(username, role=None, password=None, license_days=None):
     """تحديث بيانات المستخدم"""
     users = load_users()
@@ -1299,7 +1300,62 @@ def school_settings():
                          school=school,
                          twilio_configured=twilio_configured)
 
-# ============== صفحات إدارية أخرى (للتوافق مع الروابط القديمة) ==============
+@app.route('/admin/upload_students', methods=['GET', 'POST'])
+@login_required
+def admin_upload_students():
+    """صفحة رفع الطلاب من ملف Excel"""
+    if session.get('role') not in ['admin', 'super_admin']:
+        return redirect(url_for('home'))
+    
+    if request.method == 'POST':
+        if 'file' not in request.files:
+            return render_template('admin_upload.html', error="الرجاء اختيار ملف للرفع")
+        
+        file = request.files['file']
+        
+        if file.filename == '':
+            return render_template('admin_upload.html', error="الرجاء اختيار ملف للرفع")
+        
+        if not allowed_file(file.filename):
+            return render_template('admin_upload.html', error="نوع الملف غير مسموح. يرجى رفع ملف Excel (.xlsx, .xls) أو CSV")
+        
+        try:
+            file_content = file.read()
+            result = process_excel_file(file_content, file.filename)
+            
+            if not result['success']:
+                return render_template('admin_upload.html', error=result.get('error', 'حدث خطأ في معالجة الملف'), found_columns=result.get('found_columns'))
+            
+            if request.form.get('confirm') != 'yes':
+                old_students = get_live_students()
+                return render_template('admin_upload.html', 
+                                     preview=result['students'][:10],
+                                     total_students=result['success_count'],
+                                     old_count=len(old_students),
+                                     errors=result['errors'],
+                                     filename=file.filename,
+                                     confirm_required=True)
+            
+            # حذف الطلاب الحاليين وإدراج الجدد
+            supabase.table("students").delete().neq("student_id", "").execute()
+            
+            students_list = result['students']
+            batch_size = 50
+            batches = [students_list[i:i+batch_size] for i in range(0, len(students_list), batch_size)]
+            
+            for batch in batches:
+                supabase.table("students").insert(batch).execute()
+            
+            return render_template('admin_upload.html', 
+                                 success=True,
+                                 total_uploaded=len(students_list),
+                                 filename=file.filename)
+            
+        except Exception as e:
+            return render_template('admin_upload.html', error=f"حدث خطأ: {str(e)}")
+    
+    return render_template('admin_upload.html')
+
 @app.route('/admin/licenses')
 @login_required
 def admin_licenses_page():
@@ -1536,16 +1592,18 @@ def extend_license_api(school_id):
 @app.route('/api/admin/export_current_students')
 @login_required
 def export_current_students():
+    """تصدير بيانات الطلاب الحالية إلى ملف Excel مع دعم البريد الإلكتروني"""
     if session.get('role') not in ['admin', 'super_admin']:
         return jsonify({"success": False, "message": "غير مصرح"}), 403
     
     try:
         students = get_live_students()
+        
         if not students:
             return jsonify({"success": False, "message": "لا توجد بيانات للتصدير"}), 404
         
         df = pd.DataFrame(students)
-        columns_order = ['student_id', 'name', 'grade', 'class', 'phone', 'parent_phone']
+        columns_order = ['student_id', 'name', 'grade', 'class', 'phone', 'parent_phone', 'student_email', 'parent_email']
         existing_columns = [col for col in columns_order if col in df.columns]
         df = df[existing_columns]
         
@@ -1555,8 +1613,11 @@ def export_current_students():
             'grade': 'الصف',
             'class': 'الشعبة',
             'phone': 'هاتف الطالب',
-            'parent_phone': 'هاتف ولي الأمر'
+            'parent_phone': 'هاتف ولي الأمر',
+            'student_email': 'بريد الطالب',
+            'parent_email': 'بريد ولي الأمر'
         }
+        
         rename_dict = {col: column_names_ar[col] for col in existing_columns if col in column_names_ar}
         df = df.rename(columns=rename_dict)
         
@@ -1616,6 +1677,94 @@ def api_delete_user(username):
     
     success, message = delete_user(username)
     return jsonify({"success": success, "message": message})
+
+@app.route('/api/create_student', methods=["POST"])
+@license_required
+def api_create_student():
+    if session.get('role') not in ['admin', 'editor']:
+        return jsonify({"success": False, "message": "غير مصرح - ليس لديك صلاحية الإضافة"})
+    
+    data = request.get_json()
+    student_id = str(data.get('student_id', '')).strip()
+    name = data.get('name', '').strip()
+    grade = data.get('grade', 'الأول الثانوي')
+    class_val = data.get('class', '1')
+    phone = data.get('phone', '')
+    parent_phone = data.get('parent_phone', '')
+    student_email = data.get('student_email', '')     # ✅ جديد
+    parent_email = data.get('parent_email', '')       # ✅ جديد
+    
+    if not student_id or not name:
+        return jsonify({"success": False, "message": "الرجاء إدخال رقم الطالب واسمه"})
+    
+    student_id = clean_student_id(student_id)
+    
+    existing = supabase.table("students").select("*").eq("student_id", student_id).execute()
+    if existing.data:
+        return jsonify({"success": False, "message": f"الطالب رقم {student_id} موجود بالفعل"})
+    
+    new_student = {
+        'student_id': student_id,
+        'name': name,
+        'grade': grade,
+        'class': class_val,
+        'phone': phone,
+        'parent_phone': parent_phone,
+        'student_email': student_email,   # ✅ جديد
+        'parent_email': parent_email      # ✅ جديد
+    }
+    
+    try:
+        supabase.table("students").insert(new_student).execute()
+        return jsonify({"success": True, "message": f"تم إضافة الطالب {name} بنجاح"})
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)})
+
+@app.route('/api/update_student/<student_id>', methods=["PUT"])
+@license_required
+def api_update_student(student_id):
+    if session.get('role') not in ['admin', 'editor']:
+        return jsonify({"success": False, "message": "غير مصرح - ليس لديك صلاحية التعديل"})
+    
+    data = request.get_json()
+    
+    update_data = {}
+    if 'name' in data:
+        update_data['name'] = data['name']
+    if 'grade' in data:
+        update_data['grade'] = data['grade']
+    if 'class' in data:
+        update_data['class'] = data['class']
+    if 'phone' in data:
+        update_data['phone'] = data['phone']
+    if 'parent_phone' in data:
+        update_data['parent_phone'] = data['parent_phone']
+    if 'student_email' in data:           # ✅ جديد
+        update_data['student_email'] = data['student_email']
+    if 'parent_email' in data:            # ✅ جديد
+        update_data['parent_email'] = data['parent_email']
+    
+    if not update_data:
+        return jsonify({"success": False, "message": "لا توجد بيانات للتحديث"})
+    
+    try:
+        supabase.table("students").update(update_data).eq("student_id", student_id).execute()
+        return jsonify({"success": True, "message": f"تم تحديث بيانات الطالب بنجاح"})
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)})
+
+@app.route('/api/delete_student/<student_id>', methods=["DELETE"])
+@license_required
+def api_delete_student(student_id):
+    if session.get('role') != 'admin':
+        return jsonify({"success": False, "message": "غير مصرح - ليس لديك صلاحية الحذف"})
+    
+    try:
+        supabase.table("attendance").delete().eq("student_id", student_id).execute()
+        supabase.table("students").delete().eq("student_id", student_id).execute()
+        return jsonify({"success": True, "message": f"تم حذف الطالب رقم {student_id} وجميع سجلات حضوره"})
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)})
 
 @app.route('/api/send_attendance_notifications', methods=['POST'])
 @login_required
@@ -1864,6 +2013,120 @@ def send_notification_email_advanced(recipient_email, student_name, status, time
         print(f"❌ خطأ في إرسال البريد: {e}")
         return False, str(e)
 
+# ============== دوال معالجة الملفات ==============
+
+def allowed_file(filename):
+    """التحقق من امتداد الملف المسموح"""
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in {'xlsx', 'xls', 'csv'}
+
+def process_excel_file(file_content, filename):
+    """معالجة ملف Excel واستخراج بيانات الطلاب مع دعم البريد الإلكتروني"""
+    try:
+        if filename.endswith('.csv'):
+            df = pd.read_csv(io.BytesIO(file_content), encoding='utf-8-sig')
+        else:
+            df = pd.read_excel(io.BytesIO(file_content))
+        
+        df.columns = df.columns.str.lower().str.strip()
+        
+        id_column = None
+        name_column = None
+        grade_column = None
+        class_column = None
+        phone_column = None
+        parent_phone_column = None
+        student_email_column = None
+        parent_email_column = None
+        
+        id_names = ['student_id', 'id', 'رقم الطالب', 'studentid', 'الرقم', 'الرقم الطلابي']
+        name_names = ['name', 'student_name', 'اسم الطالب', 'studentname', 'الاسم', 'student name']
+        grade_names = ['grade', 'الصف', 'class_grade', 'المرحلة', 'الصف الدراسي']
+        class_names = ['class', 'الشعبة', 'class_name', 'الفصل', 'division', 'شعبة']
+        phone_names = ['phone', 'student_phone', 'هاتف الطالب', 'mobile', 'جوال']
+        parent_phone_names = ['parent_phone', 'guardian_phone', 'هاتف ولي الأمر', 'parent_mobile', 'ولي الأمر']
+        student_email_names = ['student_email', 'email', 'بريد الطالب', 'student email', 'البريد الإلكتروني للطالب', 'studentmail']
+        parent_email_names = ['parent_email', 'parent email', 'بريد ولي الأمر', 'guardian_email', 'ولي الأمر بريد', 'parentmail']
+        
+        for col in df.columns:
+            if any(name in col for name in id_names):
+                id_column = col
+            if any(name in col for name in name_names):
+                name_column = col
+            if any(name in col for name in grade_names):
+                grade_column = col
+            if any(name in col for name in class_names):
+                class_column = col
+            if any(name in col for name in phone_names):
+                phone_column = col
+            if any(name in col for name in parent_phone_names):
+                parent_phone_column = col
+            if any(name in col for name in student_email_names):
+                student_email_column = col
+            if any(name in col for name in parent_email_names):
+                parent_email_column = col
+        
+        if id_column is None or name_column is None:
+            return {
+                'success': False,
+                'error': 'لم يتم العثور على الأعمدة المطلوبة (رقم الطالب واسم الطالب)',
+                'found_columns': list(df.columns)
+            }
+        
+        students = []
+        errors = []
+        success_count = 0
+        
+        for index, row in df.iterrows():
+            student_id = str(row.get(id_column, '')).strip()
+            name = str(row.get(name_column, '')).strip()
+            
+            if not student_id or student_id == 'nan' or not name or name == 'nan':
+                continue
+            
+            cleaned_id = clean_student_id(student_id)
+            
+            if not cleaned_id or not name:
+                errors.append(f"الصف {index + 2}: بيانات غير صالحة (الرقم: {student_id}, الاسم: {name})")
+                continue
+            
+            student_data = {
+                'student_id': cleaned_id,
+                'name': name,
+                'grade': str(row.get(grade_column, '')).strip() if grade_column else 'الأول الثانوي',
+                'class': str(row.get(class_column, '')).strip() if class_column else '1',
+                'phone': str(row.get(phone_column, '')).strip() if phone_column else '',
+                'parent_phone': str(row.get(parent_phone_column, '')).strip() if parent_phone_column else '',
+                'student_email': str(row.get(student_email_column, '')).strip() if student_email_column else '',
+                'parent_email': str(row.get(parent_email_column, '')).strip() if parent_email_column else ''
+            }
+            
+            for key, value in student_data.items():
+                if value == 'nan' or value == 'None' or value == '':
+                    student_data[key] = ''
+            
+            students.append(student_data)
+            success_count += 1
+        
+        return {
+            'success': True,
+            'students': students,
+            'success_count': success_count,
+            'errors': errors,
+            'total_rows': len(df),
+            'id_column': id_column,
+            'name_column': name_column,
+            'grade_column': grade_column,
+            'class_column': class_column,
+            'student_email_column': student_email_column,
+            'parent_email_column': parent_email_column
+        }
+        
+    except Exception as e:
+        return {
+            'success': False,
+            'error': f'خطأ في معالجة الملف: {str(e)}'
+        }
+
 # ============== إعادة توجيه الصفحات القديمة ==============
 @app.route("/reports")
 @license_required
@@ -1913,111 +2176,6 @@ def api_remaining_trials():
     if days_remaining == -1:
         return jsonify({"success": True, "remaining": "غير محدود", "is_unlimited": True})
     return jsonify({"success": True, "remaining": days_remaining if days_remaining > 0 else 0})
-
-@app.route('/admin/upload_students', methods=['GET', 'POST'])
-@login_required
-def admin_upload_students():
-    if session.get('role') not in ['admin', 'super_admin']:
-        return redirect(url_for('home'))
-    
-    if request.method == 'POST':
-        if 'file' not in request.files:
-            return render_template('admin_upload.html', error="الرجاء اختيار ملف للرفع")
-        file = request.files['file']
-        if file.filename == '':
-            return render_template('admin_upload.html', error="الرجاء اختيار ملف للرفع")
-        if not allowed_file(file.filename):
-            return render_template('admin_upload.html', error="نوع الملف غير مسموح. يرجى رفع ملف Excel (.xlsx, .xls) أو CSV")
-        try:
-            file_content = file.read()
-            result = process_excel_file(file_content, file.filename)
-            if not result['success']:
-                return render_template('admin_upload.html', error=result.get('error', 'حدث خطأ في معالجة الملف'), found_columns=result.get('found_columns'))
-            if request.form.get('confirm') != 'yes':
-                old_students = get_live_students()
-                return render_template('admin_upload.html', 
-                                     preview=result['students'][:10],
-                                     total_students=result['success_count'],
-                                     old_count=len(old_students),
-                                     errors=result['errors'],
-                                     filename=file.filename,
-                                     confirm_required=True)
-            supabase.table("students").delete().neq("student_id", "").execute()
-            students_list = result['students']
-            batch_size = 50
-            batches = [students_list[i:i+batch_size] for i in range(0, len(students_list), batch_size)]
-            for batch in batches:
-                supabase.table("students").insert(batch).execute()
-            return render_template('admin_upload.html', success=True, total_uploaded=len(students_list), filename=file.filename)
-        except Exception as e:
-            return render_template('admin_upload.html', error=f"حدث خطأ: {str(e)}")
-    return render_template('admin_upload.html')
-
-def allowed_file(filename):
-    return '.' in filename and filename.rsplit('.', 1)[1].lower() in {'xlsx', 'xls', 'csv'}
-
-def process_excel_file(file_content, filename):
-    try:
-        if filename.endswith('.csv'):
-            df = pd.read_csv(io.BytesIO(file_content), encoding='utf-8-sig')
-        else:
-            df = pd.read_excel(io.BytesIO(file_content))
-        df.columns = df.columns.str.lower().str.strip()
-        id_column = None
-        name_column = None
-        grade_column = None
-        class_column = None
-        phone_column = None
-        parent_phone_column = None
-        id_names = ['student_id', 'id', 'رقم الطالب', 'studentid', 'الرقم', 'الرقم الطلابي']
-        name_names = ['name', 'student_name', 'اسم الطالب', 'studentname', 'الاسم', 'student name']
-        grade_names = ['grade', 'الصف', 'class_grade', 'المرحلة', 'الصف الدراسي']
-        class_names = ['class', 'الشعبة', 'class_name', 'الفصل', 'division', 'شعبة']
-        phone_names = ['phone', 'student_phone', 'هاتف الطالب', 'mobile', 'جوال']
-        parent_phone_names = ['parent_phone', 'guardian_phone', 'هاتف ولي الأمر', 'parent_mobile', 'ولي الأمر']
-        for col in df.columns:
-            if any(name in col for name in id_names):
-                id_column = col
-            if any(name in col for name in name_names):
-                name_column = col
-            if any(name in col for name in grade_names):
-                grade_column = col
-            if any(name in col for name in class_names):
-                class_column = col
-            if any(name in col for name in phone_names):
-                phone_column = col
-            if any(name in col for name in parent_phone_names):
-                parent_phone_column = col
-        if id_column is None or name_column is None:
-            return {'success': False, 'error': 'لم يتم العثور على الأعمدة المطلوبة (رقم الطالب واسم الطالب)', 'found_columns': list(df.columns)}
-        students = []
-        errors = []
-        success_count = 0
-        for index, row in df.iterrows():
-            student_id = str(row.get(id_column, '')).strip()
-            name = str(row.get(name_column, '')).strip()
-            if not student_id or student_id == 'nan' or not name or name == 'nan':
-                continue
-            cleaned_id = clean_student_id(student_id)
-            if not cleaned_id or not name:
-                errors.append(f"الصف {index + 2}: بيانات غير صالحة (الرقم: {student_id}, الاسم: {name})")
-                continue
-            student_data = {
-                'student_id': cleaned_id,
-                'name': name,
-                'grade': str(row.get(grade_column, '')).strip() if grade_column else 'الأول الثانوي',
-                'class': str(row.get(class_column, '')).strip() if class_column else '1',
-                'phone': str(row.get(phone_column, '')).strip() if phone_column else '',
-                'parent_phone': str(row.get(parent_phone_column, '')).strip() if parent_phone_column else ''
-            }
-            for key, value in student_data.items():
-                if value == 'nan' or value == 'None' or value == '':
-                    student_data[key] = ''
-            students.append(student_data)
-            success_count += 1
-        return {'success': True, 'students': students, 'success_count': success_count, 'errors': errors, 'total_rows': len(df), 'id_column': id_column, 'name_column': name_column, 'grade_column': grade_column, 'class_column': class_column}
-    except Exception as e:
-        return {'success': False, 'error': f'خطأ في معالجة الملف: {str(e)}'}
 
 # ============== دوال API الإضافية (التقارير، الحضور، إلخ) ==============
 @app.route("/api/attendance_summary")
