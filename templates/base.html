@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>{% block title %}{{ t('home') }} - {{ t('smart_attendance_system') }}{% endblock %}</title>
-    
+
     <!-- PWA Meta Tags -->
     <link rel="manifest" href="/static/manifest.json">
     <meta name="theme-color" content="#667eea">
@@ -15,16 +15,16 @@
     <meta name="application-name" content="{{ t('smart_attendance_system') }}">
     <meta name="msapplication-TileColor" content="#667eea">
     <meta name="msapplication-config" content="/static/browserconfig.xml">
-    
+
     <!-- Icons for different platforms -->
     <link rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32x32.png">
     <link rel="icon" type="image/png" sizes="16x16" href="/static/favicon-16x16.png">
     <link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
     <link rel="mask-icon" href="/static/safari-pinned-tab.svg" color="#667eea">
-    
+
     <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
-    
+
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -35,7 +35,7 @@
             direction: {{ 'rtl' if lang == 'ar' else 'ltr' }};
         }
         .container { max-width: 1400px; margin: 0 auto; }
-        
+
         /* الهيدر */
         .header {
             background: rgba(255,255,255,0.95);
@@ -97,7 +97,7 @@
             transition: 0.3s;
         }
         .lang-btn:hover { background: #cbd5e0; }
-        
+
         /* زر أيام الترخيص */
         .license-btn {
             background: linear-gradient(135deg, #48bb78, #38a169);
@@ -126,7 +126,7 @@
             0%, 100% { opacity: 1; }
             50% { opacity: 0.7; }
         }
-        
+
         /* أزرار التنقل الرئيسية */
         .nav-buttons {
             background: rgba(255,255,255,0.95);
@@ -157,7 +157,7 @@
         .nav-btn-info { background: linear-gradient(135deg, #4299e1, #3182ce); color: white; box-shadow: 0 4px 15px rgba(66,153,225,0.3); }
         .nav-btn-danger { background: linear-gradient(135deg, #e53e3e, #c53030); color: white; box-shadow: 0 4px 15px rgba(229,62,62,0.3); }
         .nav-btn:hover { transform: translateY(-3px); box-shadow: 0 8px 25px rgba(0,0,0,0.15); }
-        
+
         /* أزرار الإجراءات */
         .action-buttons {
             background: rgba(255,255,255,0.95);
@@ -186,7 +186,7 @@
         .action-btn-pdf { background: linear-gradient(135deg, #e53e3e, #c53030); color: white; }
         .action-btn-excel { background: linear-gradient(135deg, #48bb78, #38a169); color: white; }
         .action-btn:hover { transform: translateY(-2px); box-shadow: 0 5px 15px rgba(0,0,0,0.2); }
-        
+
         /* الجداول والبطاقات */
         .card {
             background: white;
@@ -223,7 +223,7 @@
         .stat-card:hover { transform: translateY(-5px); }
         .stat-card h3 { color: #718096; font-size: 14px; margin-bottom: 10px; }
         .stat-value { font-size: 36px; font-weight: bold; background: linear-gradient(135deg, #667eea, #764ba2); -webkit-background-clip: text; background-clip: text; color: transparent; }
-        
+
         .table-wrapper { overflow-x: auto; }
         table { width: 100%; border-collapse: collapse; }
         th, td { padding: 14px 16px; text-align: center; border-bottom: 1px solid #e2e8f0; }
@@ -232,7 +232,7 @@
         .present { color: #48bb78; font-weight: bold; }
         .late { color: #ed8936; font-weight: bold; }
         .absent { color: #fc8181; font-weight: bold; }
-        
+
         /* PWA Install Prompt */
         .install-prompt {
             position: fixed;
@@ -268,7 +268,7 @@
         .install-prompt .close-install {
             background: #e53e3e;
         }
-        
+
         /* Offline Indicator */
         .offline-indicator {
             position: fixed;
@@ -287,7 +287,7 @@
         .offline-indicator.show {
             transform: translateY(0);
         }
-        
+
         /* Loading Spinner */
         .loading-overlay {
             position: fixed;
@@ -313,7 +313,7 @@
             0% { transform: rotate(0deg); }
             100% { transform: rotate(360deg); }
         }
-        
+
         /* الفوتر */
         .footer {
             background: linear-gradient(135deg, #1a202c, #2d3748);
@@ -327,7 +327,7 @@
         .footer a { color: #9f7aea; text-decoration: none; }
         .footer .heart { color: #fc8181; display: inline-block; animation: heartbeat 1.5s ease infinite; }
         @keyframes heartbeat { 0%,100%{transform:scale(1)} 50%{transform:scale(1.1)} }
-        
+
         @media (max-width: 768px) {
             body { padding: 10px; }
             .header { flex-direction: column; text-align: center; }
@@ -370,13 +370,13 @@
         <div class="user-info">
             <span class="user-name"><i class="fas fa-user-circle"></i> {{ session.get('username', 'Admin') }}</span>
             <span class="current-date" id="currentDate"></span>
-            
+
             <!-- عرض أيام الترخيص المتبقية -->
             {% if session.get('role') != 'admin' and session.get('role') != 'super_admin' %}
                 {% if license_days_remaining is defined %}
                     {% if license_days_remaining == -1 %}
                         <span class="license-btn">
-                            <i class="fas fa-infinity"></i> 
+                            <i class="fas fa-infinity"></i>
                             {% if lang == 'ar' %}
                                 غير محدود
                             {% else %}
@@ -385,7 +385,7 @@
                         </span>
                     {% elif license_days_remaining > 0 and license_days_remaining <= 7 %}
                         <span class="license-btn license-warning">
-                            <i class="fas fa-hourglass-half"></i> 
+                            <i class="fas fa-hourglass-half"></i>
                             {% if lang == 'ar' %}
                                 متبقي {{ license_days_remaining }} يوم
                             {% else %}
@@ -394,7 +394,7 @@
                         </span>
                     {% elif license_days_remaining > 0 %}
                         <span class="license-btn">
-                            <i class="fas fa-check-circle"></i> 
+                            <i class="fas fa-check-circle"></i>
                             {% if lang == 'ar' %}
                                 متبقي {{ license_days_remaining }} يوم
                             {% else %}
@@ -403,7 +403,7 @@
                         </span>
                     {% elif license_days_remaining == 0 %}
                         <span class="license-btn license-danger">
-                            <i class="fas fa-exclamation-triangle"></i> 
+                            <i class="fas fa-exclamation-triangle"></i>
                             {% if lang == 'ar' %}
                                 انتهى الترخيص
                             {% else %}
@@ -413,7 +413,7 @@
                     {% endif %}
                 {% endif %}
             {% endif %}
-            
+
             <a href="/api/set_language/ar" class="lang-btn"><i class="fas fa-language"></i> عربي</a>
             <a href="/api/set_language/en" class="lang-btn"><i class="fas fa-language"></i> English</a>
             <a href="/logout" class="logout-btn"><i class="fas fa-sign-out-alt"></i> {{ t('logout') }}</a>
@@ -421,6 +421,7 @@
     </div>
 
     <div class="nav-buttons">
+        <!-- الأزرار الأساسية -->
         <a href="/dashboard" class="nav-btn nav-btn-primary"><i class="fas fa-home"></i> {{ t('home') }}</a>
         <a href="/scan" class="nav-btn nav-btn-success"><i class="fas fa-qrcode"></i> {{ t('scan') }}</a>
         <a href="/general_reports" class="nav-btn nav-btn-warning"><i class="fas fa-chart-line"></i> {{ t('general_reports') }}</a>
@@ -428,17 +429,13 @@
         <a href="/charts" class="nav-btn nav-btn-info"><i class="fas fa-chart-pie"></i> {{ t('charts') }}</a>
         <a href="/class_reports" class="nav-btn nav-btn-info"><i class="fas fa-users"></i> {{ t('class_reports') }}</a>
         <a href="/manage_students" class="nav-btn nav-btn-info"><i class="fas fa-user-graduate"></i> {{ t('manage_students') }}</a>
-        
-        <!-- الأزرار الإدارية (للمدير والمدير العام) -->
+
+        <!-- ✅ الأزرار المحدثة للنسخة التجارية (للمدير والمدير العام) -->
         {% if session.get('role') == 'admin' or session.get('role') == 'super_admin' %}
-            <a href="/backup" class="nav-btn nav-btn-danger"><i class="fas fa-database"></i> {{ t('backup') }}</a>
-            <a href="/users_list" class="nav-btn nav-btn-danger"><i class="fas fa-users-cog"></i> {{ t('users') }}</a>
-            <a href="/admin/licenses" class="nav-btn nav-btn-danger"><i class="fas fa-key"></i> {{ t('licenses') }}</a>
-            <a href="/admin/upload_students" class="nav-btn nav-btn-warning"><i class="fas fa-file-excel"></i> {{ t('upload_students') }}</a>
             <a href="/send_notifications" class="nav-btn nav-btn-info"><i class="fas fa-envelope"></i> 📧 إرسال إشعارات</a>
         {% endif %}
 
-        <!-- أزرار المدير العام فقط -->
+        <!-- ✅ أزرار المدير العام فقط (النسخة التجارية) -->
         {% if session.get('role') == 'super_admin' %}
             <hr style="border: none; border-top: 2px dashed #e2e8f0; margin: 5px 0; width: 100%;">
             <a href="/admin/dashboard" class="nav-btn nav-btn-danger"><i class="fas fa-chart-pie"></i> 📊 لوحة التحكم</a>
@@ -473,7 +470,7 @@
     window.addEventListener('beforeinstallprompt', (e) => {
         e.preventDefault();
         deferredPrompt = e;
-        
+
         if (!localStorage.getItem('installPromptClosed')) {
             installPrompt.style.display = 'flex';
         }
@@ -482,7 +479,7 @@
     installBtn.addEventListener('click', async () => {
         installPrompt.style.display = 'none';
         localStorage.setItem('installPromptClosed', 'true');
-        
+
         if (deferredPrompt) {
             deferredPrompt.prompt();
             const { outcome } = await deferredPrompt.userChoice;
@@ -511,7 +508,7 @@
 
     // ============== Online/Offline Detection ==============
     const offlineIndicator = document.getElementById('offlineIndicator');
-    
+
     function updateOnlineStatus() {
         if (navigator.onLine) {
             offlineIndicator.classList.remove('show');
@@ -530,7 +527,7 @@
     function showLoading() {
         document.getElementById('loadingOverlay').style.display = 'flex';
     }
-    
+
     function hideLoading() {
         document.getElementById('loadingOverlay').style.display = 'none';
     }
@@ -611,7 +608,7 @@
                     fetch('/api/students_list'),
                     fetch('/api/dashboard_stats')
                 ]);
-                
+
                 for (const response of responses) {
                     if (response.ok) {
                         const data = await response.clone().json();
@@ -640,7 +637,7 @@
                 const isUnlimited = data.is_unlimited;
                 const lang = '{{ lang }}';
                 const licenseBtn = document.querySelector('.license-btn');
-                
+
                 if (licenseBtn) {
                     if (isUnlimited) {
                         licenseBtn.innerHTML = `<i class="fas fa-infinity"></i> ${lang === 'ar' ? 'غير محدود' : 'Unlimited'}`;
@@ -663,7 +660,7 @@
             console.log('خطأ في تحديث أيام الترخيص:', e);
         }
     }
-    
+
     // تحديث الأيام كل 10 ثوانٍ (إذا كان الزر موجوداً)
     if (document.querySelector('.license-btn')) {
         setInterval(updateLicenseDays, 10000);
@@ -691,7 +688,7 @@
             }
         }
     }
-    
+
     // Check for updates every hour
     checkForUpdates();
     setInterval(checkForUpdates, 3600000);
